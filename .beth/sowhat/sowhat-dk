@@ -1,0 +1,3385 @@
+#!perl 
+
+#    sowhat - SOWH test 
+#        (likelihood-based test used to compare tree topologies which
+#         are not specified a priori)
+#
+#    Copyright (C) 2013  Samuel H. Church, Joseph F. Ryan, Casey W. Dunn
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License along
+#    with this program; if not, write to the Free Software Foundation, Inc.,
+#    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+our $VERSION = 0.36;
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use File::Path;
+use File::Temp;
+use Data::Dumper;
+use Cwd;
+#use local lib if installing Statistics::R without sudo cpan
+#use local::lib;
+use Statistics::R;
+
+
+our $RAX = 'raxmlHPC';
+our $GARLI = 'Garli';
+our $USEGARLI = '0';
+our $SEQGEN = 'seq-gen';
+our $USEREVOLVER = '0';
+our $PB = 'pb -f';
+our $PPRED = 'ppred';
+our $PB_SAMPLING_FREQ = 5;
+our $PB_SAVING_FREQ   = 1;
+our $PB_BURN   = 10;
+our $DEFAULT_REPS = 1000;
+our $DEFAULT_RUNS = 1;
+our $QUIET = 1;
+our $DIR = '';
+our $SCRATCH = '';
+our $FREQ_BIN_NUMBER = 10;
+our $TRE_PREFIX = 'RAxML_bestTree';
+our $UNLINKED_PARTITION_FILE = 'unlinked.part.txt';
+our $SIM_PARTITION_FILE = 'sim.part.txt';
+our $PART_RATE_MATRIX_PREFIX = 'RAxML_proteinGTRmodel';
+our $NAME = '';
+our $SUBZERO = 0.001;
+
+MAIN: {
+    my $rh_opts = process_options();
+    my $ver = check_version();
+    my ($datatype,$model) = check_model($rh_opts);
+
+    my (@delta_dist,@deltaprime_dist,@mean);
+    #These are the test stat and null dist arrays
+    my (@current_mean,@pen_mean,@ratio);
+    #These are the ratio arrays (. and o)
+    my $ra_aln_len = [];
+    my $ra_params = [];
+    my $ra_rates = [];
+    my $alns = '';
+    #These are the model arrays
+
+    my (@output);
+
+    my $restart_num = restart($rh_opts);
+
+
+    print_initial_messages($rh_opts);
+
+    for (my $ts = 0; $ts < $rh_opts->{'reps'}; $ts++) {
+    #LOOP: For the number of repetitions, simulate data
+    #      and calculate the statistics.
+        for (my $ch = 0; $ch < $rh_opts->{'runs'}; $ch++) {
+        #LOOP: For the number of runs, perform each repetition of the test.
+        #      This loop allows multiple runs to be performed simultaneously.
+            my $tag = "$ch.$ts";
+            
+            my $restart_flag = 0;
+            my $gen_tree = '';
+            if (($rh_opts->{'restart'}) && ($ts <= $restart_num)) {
+                $restart_flag = 1;
+            }
+
+            if (($ts < 1) || ($rh_opts->{'rerun'})) {
+            #For the first iteration of each run only, run the initial trees
+            #and get the parameter values.
+                run_initial_trees($rh_opts,$restart_flag,$tag);
+                if ($rh_opts->{'treetwo'}) {
+                    make_two_tree_decisison($rh_opts,$restart_flag,$tag);
+                } 
+                if ($rh_opts->{'initial'}) {
+                    exit;
+                }               
+
+                if ($rh_opts->{'usepb'}) {
+                    get_params_w_pb($rh_opts,$restart_flag,$tag);
+                } else {
+                    ($ra_aln_len,$ra_params,$ra_rates) = get_params($rh_opts,
+                        $model,$datatype,$restart_flag,$tag);
+                }
+                if ($rh_opts->{'gentree'}) {
+                    $gen_tree = $rh_opts->{'gentree'};
+                } else {
+                    $gen_tree = generate_zero_const($rh_opts,$tag) unless ($rh_opts->{'resolved'});
+                }
+            }
+
+            if ($rh_opts->{'usepb'}) {
+                $alns = generate_alignments_w_pb($rh_opts,$restart_flag,$tag);
+            } else {
+                $alns = generate_alignments($ra_aln_len,$ra_params,$ra_rates,
+                    $rh_opts,$model,$gen_tree,$restart_flag,$tag,$ch,$ts);
+            }
+
+            
+            run_gen_trees($alns,$rh_opts,$ra_aln_len,
+                $restart_flag,$tag);
+            my ($best_ml,$best_t1,$rh_stats,$ra_diff) = 
+                evaluate_distribution($rh_opts,\@output,\@delta_dist,\@deltaprime_dist,
+                \@mean,\@current_mean,\@pen_mean,$ts,$ch,$tag);
+
+
+            if ($ch == ($rh_opts->{'runs'} - 1)) {
+            #After a successive iteration on all runs, 
+            #evaluate statistics across runs and create a graph
+                if ($ch && $rh_opts->{'plot'}) {
+                    plot_runs(\@mean,$rh_opts->{'runs'},$ts);
+                }
+            }
+
+            if($ts > 9) {
+            #After 10 iterations on all runs,
+            # begin to calculate and report the statistics.
+                calc_ratio($ch,$ts,\@current_mean,\@pen_mean,\@ratio,
+                    \@mean,$rh_opts->{'plot'});
+                print_report(\@output,$ra_diff,
+                    $delta_dist[$ch],$ratio[$ch][$ts],$rh_opts,$ver,$ch);
+                if ($rh_opts->{'json'}) {
+                }
+            } else {
+                print "-";
+            }
+        }
+    }
+}
+
+# IN:  none
+# OUT: reference to a hash of command-line options
+# JOB: checks and organizes all command-line options
+sub process_options {
+    my $rh_opts = {};
+    $rh_opts->{'reps'} = $DEFAULT_REPS;
+    $rh_opts->{'runs'} = $DEFAULT_RUNS;
+    $rh_opts->{'orig_options'} = [@ARGV];
+    $rh_opts->{'rax'} = $RAX;
+    $rh_opts->{'seqgen'} = $SEQGEN;
+
+    my $opt_results = Getopt::Long::GetOptions(
+                                "aln=s" => \$rh_opts->{'aln'},
+                         "constraint=s" => \$rh_opts->{'constraint_tree'},
+                                "debug" => \$rh_opts->{'debug'},
+                                "dir=s" => \$rh_opts->{'dir'},
+                              "garli=s" => \$rh_opts->{'garli'},
+                         "garli_conf=s" => \$rh_opts->{'garli_conf'},
+                                 "help" => \$rh_opts->{'help'},
+                              "initial" => \$rh_opts->{'initial'},
+                                 "json" => \$rh_opts->{'json'},
+                                  "max" => \$rh_opts->{'max'},
+                        "raxml_model=s" => \$rh_opts->{'mod'},
+                               "name=s" => \$rh_opts->{'name'},
+                               "nogaps" => \$rh_opts->{'nogaps'},
+                          "partition=s" => \$rh_opts->{'part'},
+                                 "pb=s" => \$rh_opts->{'pb'},
+                            "pb_burn=i" => \$rh_opts->{'pb_burn'},
+                                 "plot" => \$rh_opts->{'plot'},
+                              "ppred=s" => \$rh_opts->{'ppred'},
+                                "rax=s" => \$rh_opts->{'rax'},
+                               "reps=i" => \$rh_opts->{'reps'},
+                             "resolved" => \$rh_opts->{'resolved'},
+                                "rerun" => \$rh_opts->{'rerun'},
+                              "restart" => \$rh_opts->{'restart'},
+                               "runs=i" => \$rh_opts->{'runs'},
+                             "seqgen=s" => \$rh_opts->{'seqgen'},
+                            "treetwo=s" => \$rh_opts->{'treetwo'},
+                                "usepb" => \$rh_opts->{'usepb'},
+                             "usegarli" => \$rh_opts->{'usegarli'},
+                        "usegenmodel=s" => \$rh_opts->{'genmodel'},
+                         "usegentree=s" => \$rh_opts->{'gentree'},
+ 			  "userevolver" => \$rh_opts->{'userevolver'},
+                              "version" => \$rh_opts->{'version'},
+                           );
+    $PPRED = $rh_opts->{'ppred'} if ($rh_opts->{'ppred'});
+    $PB = $rh_opts->{'pb'} if ($rh_opts->{'pb'});
+    $PB_BURN = $rh_opts->{'pb_burn'} if ($rh_opts->{'pb_burn'});
+    $USEGARLI = 1 if ($rh_opts->{'usegarli'});
+    $USEREVOLVER = 1 if ($rh_opts->{'userevolver'});
+    $RAX = $rh_opts->{'rax'} if ($rh_opts->{'rax'});
+    $SEQGEN = $rh_opts->{'seqgen'} if ($rh_opts->{'seqgen'});
+    $GARLI = $rh_opts->{'garli'} if ($rh_opts->{'garli'});
+    $QUIET = 0 if ($rh_opts->{'debug'});
+    $NAME = $rh_opts->{'name'};
+    require JSON if ($rh_opts->{'json'});
+
+    die "$VERSION\n" if ($rh_opts->{'version'});
+    pod2usage({-exitval => 0, -verbose => 2}) if($rh_opts->{'help'});
+    
+    _options_compatible($rh_opts);
+    _set_out_dir($rh_opts->{'dir'});
+    return $rh_opts;
+}
+
+# IN:  output directory specified with --dir on command-line
+# OUT: none
+# JOB: makes sure full path is used for output directory (required by RAX)
+sub _set_out_dir {
+    my $opt_dir = shift;
+    my $pwd = getcwd();
+    if ($opt_dir) {
+        $opt_dir = "$pwd/$opt_dir" if ($opt_dir !~ m/^\//);
+        $opt_dir .= '/' if ($opt_dir !~ m/\/$/);
+        $DIR = $opt_dir if ($opt_dir);
+        $SCRATCH = "$DIR" . "sowhat_scratch/";
+    } else {
+        warn "missing --dir\n";
+        usage();
+    }
+    File::Path::mkpath($DIR) unless (-d $DIR);
+    File::Path::mkpath($SCRATCH) unless (-d $SCRATCH);
+}
+
+#IN: hash w/ options
+#JOB: check that necessary options are there
+#     check that incompatible options are not 
+sub _options_compatible {
+    my $rh_opts = shift;
+    if ($rh_opts->{'mod'} eq 'available') {
+        _model_message();
+    }
+    if ($USEREVOLVER) {
+        die "Seq-Module needs to be REvolver. Specify --seqgen=REvolver or Path to binary.\n" unless $SEQGEN =~ /REvolver.jar/;
+    } elsif ($USEGARLI)  {
+        check_constraint_tree_for_operators($rh_opts->{'constraint_tree'});
+        unless ($rh_opts->{'constraint_tree'} &&
+                $rh_opts->{'aln'} &&
+                $rh_opts->{'name'} &&
+                $rh_opts->{'garli_conf'}) {
+            warn "missing --constraint\n" unless ($rh_opts->{'constraint_tree'});
+            warn "missing --aln\n" unless ($rh_opts->{'aln'});
+            warn "missing --name\n" unless ($rh_opts->{'name'});
+            warn "missing --garli_conf\n" unless ($rh_opts->{'garli_conf'});
+            usage();
+        }
+        if ($rh_opts->{'mod'}) {
+            warn "  cannot use --raxml_model with --usegarli\n";
+            die "  model should be supplied in conf file\n";
+        }
+        die " cannot use --partition with --usegarli, use raxml instead\n" if ($rh_opts->{'part'});
+        die " cannot use --usepb with --usegarli, use raxml instead\n" if ($rh_opts->{'usepb'});
+    } else {
+        unless ($rh_opts->{'constraint_tree'} &&
+            $rh_opts->{'aln'} &&
+            $rh_opts->{'mod'} &&
+            $rh_opts->{'name'}) {
+            warn "missing --constraint\n" unless ($rh_opts->{'constraint_tree'});
+            warn "missing --aln\n" unless ($rh_opts->{'aln'});
+            warn "missing --name\n" unless ($rh_opts->{'name'});
+            warn "missing --raxml_model\n" unless ($rh_opts->{'mod'});
+            usage();
+        }
+    die " cannot use --partition with --usepb\n" if ($rh_opts->{'part'} && $rh_opts->{'usepb'});
+    die " cannot use --max with --usepb\n" if ($rh_opts->{'max'} && $rh_opts->{'usepb'});
+    die " cannot use --max with --usegenmodel\n" if ($rh_opts->{'max'} && $rh_opts->{'usegenmodel'});
+    die " cannot use --usepb with --usegenmodel\n" if ($rh_opts->{'usepb'} && $rh_opts->{'usegenmodel'});
+    }
+}
+
+#IN: treefile
+#JOB: check GARLI const tree for + or -
+sub check_constraint_tree_for_operators {
+    my $tre = shift;
+    open IN, $tre or die "cannot open $tre:$!";
+    while (my $line = <IN>) {
+        if ($line =~ m/^\s*\(/) {
+            warn "error: garli constraint tree must start with '+' or '-'\n";
+            warn "       for example: '+((1,3,5),2,4,6,7,8);\n";
+            die "       see garli manual\n";
+        } elsif ($line =~ m/^\s*\+/) {
+            return 1;
+        } elsif ($line =~ m/^\s*\-/) {
+            return 1;
+        }
+    }
+    warn "unexpected constraint tree: $tre\n";
+    die "tree should look like: '+((1,3,5),2,4,6,7,8);'\n";
+}
+
+#IN: none
+#OUT: version of ML software
+#JOB: check ML software version
+sub check_version {
+    my $ver = '';
+    if ($USEGARLI)  {
+        $ver = check_garli_version();
+    } else {
+        $ver = check_raxml_version();
+    }
+    return $ver;
+}
+
+#IN: none
+#OUT: returns GARLI version
+#JOB: check GARLI version
+#      throws and error if not correct version
+sub check_garli_version {
+    my $errorcode = system "$GARLI -v";
+    if ($errorcode != 0) {
+        die "$GARLI is not in your path.\n  Supply full path to garli binary with --garli option\n    e.g., --garli=/usr/local/Garli-2.0-IntelOSX-multithread/bin/Garli-2.0\n";
+    }
+    my $version_st = `$GARLI -v`;
+    my @lines= split /\n/, $version_st;
+    my $numeric_version = '';
+    my $version = '';
+    my $possible_error = '';
+    foreach my $l (@lines) {
+        $possible_error .= $l;
+        next unless $l =~ m/^GARLI\S* Version ((\d+\.\d+)\.(\d+)?)/;
+        $version = $1;
+        $numeric_version = $2;
+        last;
+    }
+    if ($version eq '') {
+        die "Error from GARLI (check --garli option):\n$possible_error";
+    }
+    if ($numeric_version < 2) {
+        warn "sowhat ERROR:\n";
+        warn "You are running version $version of GARLI\n";
+        die  "sowhat requires version 2.0 or higher\n";
+    }
+    return $version;
+}
+
+# IN: none
+# OUT: returns version of raxml
+# JOB: runs raxml -v and parses the output to check version,
+#      throws an error if not correct version
+sub check_raxml_version {
+    my $version_st = `$RAX -v`;
+    my @lines= split /\n/, $version_st;
+    my $version = '';
+    my $long_version = '';
+    my $possible_error = '';
+    foreach my $l (@lines) {
+        $possible_error .= $l;
+        next unless $l =~ m/^This is RAxML version ((\d+\.\d+).\d+)/;
+        $long_version = $1;
+        $version = $2;
+        last;
+    }
+    if ($version eq '') {
+        die "Error from RAxML (check --rax option):\n$possible_error";
+    }
+    if ($version < 8.1) {
+        warn "sowhat ERROR:\n";
+        warn "You are running version $version of RAxML\n";
+        die  "sowhat requires version 8.1 or higher\n";
+    }
+    return $long_version;
+}
+
+#IN: hash w/ options
+#OUT: datatype (DNA, AA, MULTI)
+#     model type
+#JOB: check if models are incompatible
+#     parse data and model type
+sub check_model {
+    my $rh_opts = shift;
+    my $mod = $rh_opts->{'mod'};
+    my $datatype = '';
+    my $model = '';
+    if ($USEGARLI)  {
+        my ($t_datatype,$t_model) = _parse_info_from_garli_conf($rh_opts->{'garli_conf'});
+        if ($t_datatype eq 'aminoacid') {
+            $datatype = 'AA';
+            $model = _translate_model($rh_opts,$t_model);
+        } else {
+            $datatype = 'DNA';
+            $model = $t_model;
+        }
+    } elsif ($mod =~ m/^ASC/i) {
+        die("RAxML models beginning with ASC are not currenlty supported by sowhat");
+    } elsif ($mod =~ m/^BIN/i) {
+        die("for binary character datasets, use MULTI models in RAxML");
+    } elsif ($mod =~ m/^GTR/i) {
+        $datatype = 'DNA';
+        $model = 'GTR';
+    } elsif ($mod =~ m/^PROT/i) {
+        $datatype = 'AA';
+        if ($mod =~ m/^PROTGAMMA(I)?(\S+)/) {
+            my $t_model = $2;
+            $model = _translate_model($rh_opts,$t_model);
+        } elsif ($mod =~ m/^PROTCAT(I)?(\S+)/) {
+            my $t_model = $2;
+            $model = _translate_model($rh_opts,$t_model);
+        }
+    } elsif ($mod =~ m/^MULTI/i) {
+        $datatype = 'Multi-State';
+        $model = 'GTR';
+    } else {
+        _model_message() unless($rh_opts->{'max'});
+    }
+    return ($datatype,$model);
+}
+
+#IN: garli configuration file
+#OUT: datatype
+#     model
+#JOB: read garli conf
+sub _parse_info_from_garli_conf {
+    my $conf     = shift;
+    my $datatype = '';
+    my $model = '';
+    my $rate = '';
+    my $sfreq = '';
+    my $het = '';
+    my $invar = '';    
+    open IN, $conf or die "cannot open $conf:$!";
+    while (my $line = <IN>) {
+        if ($line =~ m/^\s*datatype\s*=\s*(\S+)\s*/i) {
+            my $dt = $1;
+            $datatype = lc($dt);
+        } elsif ($line =~ m/^\s*ratematrix\s*=\s*(\S+)\s*/i) {
+            my $ratematrix = $1;
+            $rate = lc($ratematrix);
+        } elsif ($line =~ m/^\s*statefrequencies\s*=\s*(\S+)\s*/i) {
+            my $statefrequencies = $1;
+            $sfreq = lc($statefrequencies);
+        } elsif ($line =~ m/^\s*invariantsites\s*=\s*(\S+)\s*/i) {
+            my $invariantsites = $1;
+            $invar = lc($invariantsites);
+        } elsif ($line =~ m/^\s*ratehetmodel\s*=\s*(\S+)\s*/i) {
+            my $ratehetmodel= $1;
+            $het = lc($ratehetmodel);
+        }
+        next;
+    }
+    if ($sfreq =~ m/estimate/i && $het =~ m/gamma/i &&  $invar =~ m/estimate/i) {
+        if ($rate =~ m/6rate/i) {
+            $model = 'MAXDNAGARLI';
+        } elsif ($rate =~ m/estimate/i && $sfreq =~ m/estimate/i) {
+            $model = 'MAXAAGARLI';
+        } else {
+            $model = "$rate";
+        }
+    } else {
+        $model = "$rate";
+    }
+    close IN;
+    return ($datatype,$model);
+}
+
+#IN: matrix name
+#OUT: translated matrix name for seq-gen
+#JOB: ID and translate AA matrices
+sub _translate_model {
+    my $rh_opts = shift;
+    my $mod = shift;
+    my $core_mod = uc($mod);
+    if ($USEGARLI)  {
+        if ($core_mod =~ m/JONES/) {
+            return 'JTT';
+        } elsif ($core_mod =~ m/WAG/) {
+            return 'WAG';
+        } elsif ($core_mod =~ m/DAYHOFF/) {
+            return 'PAM';
+        } elsif ($core_mod =~ m/MTREV/) {
+            return 'MTREV';
+        } elsif ($core_mod =~ m/MTMAM/) {
+            return 'MTMAM';
+        } elsif ($core_mod =~ m/MAXAAGARLI/) {
+            return 'MAXAAGARLI';
+        } else {
+            _model_message() unless($rh_opts->{'max'});
+        }
+    } else {
+        if ($core_mod =~ m/JTT/) {
+            return 'JTT';
+        } elsif ($core_mod =~ m/WAG/) {
+            return 'WAG';
+        } elsif ($core_mod =~ m/DAYHOFF/) {
+            return 'PAM';
+        } elsif ($core_mod =~ m/BLOSUM62/) {
+            return 'BLOSUM';
+        } elsif ($core_mod =~ m/MTREV/) {
+            return 'MTREV';
+        } elsif ($core_mod =~ m/MTART/) {
+            return 'MTART';
+        } elsif ($core_mod =~ m/CPREV45/) {
+            return 'CPREV';
+        } elsif ($core_mod =~ m/GTR_UNLINKED/) {
+            return 'GTR_UNLINKED';
+        } elsif ($core_mod =~ m/GTR/) {
+            return 'GTR';
+        } else {
+            _model_message() unless($rh_opts->{'max'});
+        }
+    }
+}
+
+#JOB: warn about models available and options
+sub _model_message {
+    warn "    sowhat recognizes the following models:\n";
+    warn "    nucleotide data:\n";
+    warn "        - RAxML models - GTRGAMMA[I|X] GTRCAT[I|X] \n";
+    warn "          (CAT model  will not be used for simulation)\n";
+    warn "        - GARLI models - all options except fixed\n";
+    warn "    amino acid data:\n";
+    warn "        - RAxML models - PROTGAMMA[I|X]... PROTCAT[I|X]  \n";
+    warn "          (CAT model will not be used for simulation)\n";
+    warn "          matrices: JTT WAG DAYHOFF BLOSUM62 MTREV CPREV45 GTR GTR_UNLINKED\n";;
+    warn "        - GARLI models - all options except fixed\n";
+    warn "          matrices: JONES WAG DAYHOFF MTREV MTMAM\n";
+    warn "    character data:\n";
+    warn "        - RAxML models - MULTIGAMMA[X] MULTICAT[X]  \n";
+    warn "          (CAT model will not be used for simulation)\n";
+    warn "        - GARLI + character data currently not available\n";
+    warn "    alternative options:\n";
+    warn "        - The PhyloBayes CAT_GTR model can be used for parameter \n";
+    warn "          estimation and data simulation w/ --usepb\n";
+    warn "        - A user specified model can be used for simulation w/ --usegenmodel \n";
+    warn "          see example file examples/simulation.model\n";
+    warn "        - The user can specify the --max option to maximize free \n";
+    die  "          parameters used in simulation \n";
+}
+
+# IN: command-line options hash
+# OUT: return flag for determining where to resume test
+# JOB: identify the final two iterations, remove them, and signal 
+#      where to resume the test
+sub restart {
+    my $rh_opts = shift;
+    my $high_file_num = 0;
+    my $num = 0;
+    my $fileml = '';
+    my $reps = $rh_opts->{'reps'};
+    my $high_flag = 1;
+    my $i = 0;
+    while ($high_flag) {
+        if($USEGARLI)  {
+            $fileml = "$SCRATCH" . "ml.0.$i.screen.log";
+        } else {
+            $fileml = "$SCRATCH" . "RAxML_info.ml.0.$i";
+        }
+        if (-e $fileml) {
+            $i++;
+        } else {
+            $high_file_num = $i;
+            $high_flag = 0;
+        }
+    }
+    if($rh_opts->{'restart'} && $USEGARLI) {
+        unlink glob "$SCRATCH/*0.$high_file_num*";
+        $num = ($high_file_num - 1);
+        unlink glob "$SCRATCH/*0.$num*";
+        $num = ($high_file_num - 2);        
+    } elsif($rh_opts->{'restart'}) {
+        unlink glob "$SCRATCH/*0.$high_file_num*";
+        $num = ($high_file_num - 1);
+        unlink glob "$SCRATCH/*0.$num*";
+        $num = ($high_file_num - 2);
+    } elsif($high_file_num) {
+        warn "    sowhat output files with that name already exist\n";
+        die  "     use --restart if you want to pick up where you left off\n";
+    } 
+    return $num;
+}
+
+# IN: hashref with options
+# OUT: none
+# JOB: prints messages to user at beginning of run
+sub print_initial_messages {
+    my $rh_opts = shift;
+    print "SOWHAT:\n";
+    print "Results are being printed to $DIR" . "sowhat.results.txt\n" unless($rh_opts->{'runs'} > 1);
+    print "Number of runs = $rh_opts->{'runs'}. Details printed to $DIR" . "sowhat.runs.info\n" if($rh_opts->{'runs'} > 1);
+    print "Results of each run printed to separate file: $DIR" . "sowhat.results.'run'.txt\n" if($rh_opts->{'runs'} > 1);
+    if (_interleaved($rh_opts->{'aln'})) {
+        die "your alignment $rh_opts->{'aln'} appears to be in phylip interleaved format or sequences are not on a single line. Sorry but sowhat cannot currently deal with this. Please convert to sequential or have one line per taxa.\n";
+    }
+    print "Sample: ";
+}
+
+#IN: alignment file
+#OUT: interleaved flag
+#JOB: checks if the aln is phylip interleaved
+#     throws error if so
+sub _interleaved {
+    my $file = shift;
+    open IN, $file or die "cannot open $file:$!";
+    my $topline = <IN>;
+    $topline =~ m/\s*(\d+)\s+(\d+)/;
+    my $seq_num = $1;
+    my $count = 0;
+    while (my $line = <IN>) {
+        next if ($line =~ m/^\s*$/);
+        $count++;
+    }
+    return 1 if ($count != $seq_num);
+}
+
+# IN:  command-line options hash
+#      restart flag
+#      string consisting of the current rep and run
+# OUT: none
+# JOB: formats options and runs trees using _run_best_tree method 
+#      with and without the constraint tree
+sub run_initial_trees {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $conf = $rh_opts->{'garli_conf'};
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $mod = $rh_opts->{'mod'};
+    my $tre = $rh_opts->{'constraint_tree'};
+    my $rerun = $rh_opts->{'rerun'};
+    my $treetwo = '';
+    if ($rh_opts->{'treetwo'}) {
+        $treetwo = $rh_opts->{'treetwo'};
+    }
+
+    if ($USEGARLI)  {
+        _run_best_tree_w_garli('ml.i',$conf,$aln,0,$restart,$rerun,$tag,$treetwo);
+        _run_best_tree_w_garli('t1.i',$conf,$aln,0,$restart,$rerun,$tag,$tre);
+    } else {
+        _run_best_tree_w_raxml('ml.i',$aln,$part,$mod,$restart,$rerun,$tag,$treetwo);
+        _run_best_tree_w_raxml('t1.i',$aln,$part,$mod,$restart,$rerun,$tag,$tre);
+    }
+}
+
+# IN:  title          
+#      garli configuration file 
+#      alignment file
+#      maximize parameters flag
+#      restart flag
+#      rerun initial trees flag
+#      string consisting of the current rep and run
+#      treefile
+# OUT: none
+# JOB: create temporary conf file
+#      run best tree search
+sub _run_best_tree_w_garli {
+    my $title   = shift;
+    my $conf    = shift;
+    my $aln     = shift;
+    my $max     = shift;
+    my $restart = shift;
+    my $rerun   = shift;
+    my $tag     = shift;
+    my $const   = shift;
+
+    my ($fh,$file) = File::Temp::tempfile( SUFFIX => '.garli.conf',
+                                   UNLINK => 1,
+                                   DIR => $SCRATCH);
+    open IN, $conf or die "cannot open $conf:$!";
+    print $fh "datafname = $aln\n";
+    print $fh "ofprefix = $SCRATCH/$title.$tag\n";
+    if($rerun) {
+        print $fh "randseed = -1\n";
+    } else {
+        print $fh "randseed = 1234\n";
+    }
+    print $fh "searchreps = 1\n";
+    print $fh "outputphyliptree = 1\n";
+    print $fh "collapsebranches = 0\n";
+    if ($const) {
+        print $fh "constraintfile = $const\n";
+    }
+    while (my $line = <IN>) {
+        next if ($line =~ m/^\s*outputphyliptree\s*=\s/i);
+        next if ($line =~ m/^\s*datafname\s*=\s/i);
+        next if ($line =~ m/^\s*constraintfile\s*=\s/i);
+        next if ($line =~ m/^\s*ofprefix\s*=\s/i);
+        next if ($line =~ m/^\s*collapsebranches\s*=\s/i);
+        next if ($line =~ m/^\s*searchreps\s*=\s/i);
+        if ($max) {
+            if ($line =~ m/^\s*\[\s*model\s*[0-9.]+\s*\]/i) {
+                print $fh $line;
+                print $fh "statefrequencies = estimate\n";
+                if ($max =~ m/MAXDNAGARLI/i) {
+                    print $fh "ratematrix = 6rate\n";
+                } else {
+                    print $fh "ratematrix = estimate\n";
+                }
+                print $fh "ratehetmodel = gamma\n";
+                print $fh "numratecats = 4\n";
+                print $fh "invariantsites = estimate\n";
+                next;
+            }
+            next if ($line =~ m/^\s*ratematrix\s*=\s/i);
+            next if ($line =~ m/^\s*statefrequencies\s*=\s/i);
+            next if ($line =~ m/^\s*ratehetmodel\s*=\s/i);
+            next if ($line =~ m/^\s*numratecats\s*=\s/i);
+            next if ($line =~ m/^\s*invariantsites\s*=\s/i);
+        }
+        print $fh $line;
+    }
+    my $cmd = "$GARLI $file";
+    if ($QUIET) {
+        $cmd .= " >> ${DIR}sowh_stdout_$NAME.txt ";
+        $cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    safe_system($cmd) unless($restart);
+    close IN;
+    File::Temp::cleanup();
+}
+
+# IN:  title          (-n for raxml)
+#      alignment file (-s for raxml)
+#      partition file (-q for raxml)
+#      model          (-m for raxml)
+#      restart flag
+#      string consisting of the current rep and run (-n for raxml)
+#      treefile       (-t for raxml)
+# OUT: none
+# JOB: format the command line for running raxml tree
+#      only includes -q partitionfile or -t treefile if they are supplied     
+sub _run_best_tree_w_raxml {
+    my $title   = shift;
+    my $aln     = shift;
+    my $part    = shift;
+    my $mod     = shift;
+    my $restart = shift;
+    my $rerun   = shift;
+    my $tag     = shift;
+    my $tre     = shift;
+    my $num = 0;
+    if ($rerun) {
+        $num = int(rand(1000)) + 500;
+    } else {
+        $num = 1234;
+    }
+    my $cmd = "$RAX -f d -p $num --no-bfgs -w $SCRATCH -m $mod -s $aln -n $title.$tag";
+    $cmd .= " -q $part" if ($part);
+    $cmd .= " -g $tre" if ($tre);
+    if ($QUIET) {
+        $cmd .= " >> ${DIR}sowh_stdout_$NAME.txt ";
+        $cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    safe_system($cmd) unless($restart);
+}
+
+#IN: hash w/ options
+#    restart flag
+#    string with rep and run
+#OUT: none
+#JOB: decide how to proceed with two trees as input
+#     evaluate which is more likely
+#     determine which to use as constraint
+#     rerun initial trees if necessary
+sub make_two_tree_decisison {
+    my $rh_opts = shift;
+    my $restart_flag = shift;
+    my $tag = shift;
+    my $score_switch_flag = decide_best($rh_opts);
+    if ($score_switch_flag) {
+        warn "$rh_opts->{'constraint_tree'} is more likely\n";
+        warn "     than $rh_opts->{'treetwo'}\n";
+        warn "     $rh_opts->{'treetwo'} will be used as \n";
+        warn "     the constraint tree instead\n";
+        unlink glob "$SCRATCH/*ml.i.0.0*";
+        unlink glob "$SCRATCH/*t1.i.0.0*";
+        my $tmp_tre = $rh_opts->{'constraint_tree'};
+        $rh_opts->{'constraint_tree'} = $rh_opts->{'treetwo'};
+        $rh_opts->{'treetwo'} = $tmp_tre;
+        run_initial_trees($rh_opts,$restart_flag,$tag);
+    }
+}
+
+#IN: hash w/ options
+#OUT: flag if trees need to be switched
+#JOB: compare ML scores between two trees
+sub decide_best {
+    my $rh_opts = shift;
+    my $const = $rh_opts->{'constraint_tree'};
+    my $treetwo = $rh_opts->{'treetwo'};
+    my $score_switch_flag = 0;
+    my $best_ml_score = '';
+    my $best_t1_score = '';
+    if ($USEGARLI)  {
+        $best_ml_score = _get_best_garli_score("$SCRATCH" . "ml.i.0.0.screen.log");
+        $best_t1_score = _get_best_garli_score("$SCRATCH" . "t1.i.0.0.screen.log");
+    } else {
+        $best_ml_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.ml.i.0.0");
+        $best_t1_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.t1.i.0.0");
+    }
+    if ($best_ml_score < $best_t1_score) {
+        $score_switch_flag = 1;
+    }
+    return($score_switch_flag);
+}
+
+#IN: hash w/ options
+#    string w/ rep and run
+#OUT: zero constraint tree file
+#JOB: build and ID zero-constraint tree from Susko et al 2014
+sub generate_zero_const {
+    my $rh_opts = shift;
+    my $tag = shift;
+    my $ml_tre = '';
+    my $const_tre = $rh_opts->{'constraint_tree'};
+    my $zero_const = "$SCRATCH" . "zero_const.$tag.tre";
+    if ($rh_opts->{'rerun'} && $USEGARLI) {
+        $ml_tre = "$SCRATCH" . "ml.i.$tag.best.phy";
+    } elsif ($rh_opts->{'rerun'}) {
+        $ml_tre = "$SCRATCH" . "$TRE_PREFIX.ml.i.$tag";
+    } elsif ($USEGARLI)  {
+        $ml_tre  = "$SCRATCH" . "ml.i.0.0.best.phy";
+    } else {
+        $ml_tre  = "$SCRATCH" . "$TRE_PREFIX.ml.i.0.0";
+    }
+        my $R = Statistics::R->new() ;
+    my $utility_r_functions = get_utility_R_functions();
+my $cmds = <<EOF;
+$utility_r_functions
+phy1 <- read.tree("$ml_tre")
+phy2 <- read.tree("$const_tre")
+zc <- zero_constrained(phy1,phy2)
+write.tree(zc,file="$zero_const")
+EOF
+    $R->run($cmds);
+    return($zero_const);
+}
+
+#JOB: These are utility R functions 
+#     For generating the zero-const tree
+sub get_utility_R_functions {
+    return q~library(ape)
+#' Generates the "zero-constrained" tree described by Susko 2014 
+#' (http://dx.doi.org/10.1093/molbev/msu039)
+#' 
+#' @param phy_resolved A fully resolved phylogeny stored as a phylo object, e.g. an ML 
+#' tree.
+#' @param phy_constraint A partially resolved constraint tree.
+#' @param epsilon 
+#' @return A phylo object containing a tree that is the same as phy_resolved, except that 
+#' the length of edges that are incompatible with phy_constraint are replaced with epsilon.
+#' @examples
+#' zc <- zero_constrained( ml, constraint )
+zero_constrained <- function ( phy_resolved, phy_constraint, epsilon=0.000001 ){
+    phy_resolved$edge.length[ incompatible_edges(  phy_resolved, phy_constraint ) ] <- epsilon
+    return( phy_resolved )
+}
+
+#' Identify the edges in one phylo object that are incompatible with the edges in another 
+#' phylo object. Requires the same tip labels for each tree.
+#' 
+#' @param phy1 The tree under consideration
+#' @param phy2 The tree to be compared to
+#' @return A boolean vector corresponding to the edges in phy1. Each element is FALSE if 
+#' the edge is compatible with phy2, or TRUE if incompatible.
+incompatible_edges <- function( phy1, phy2 ){
+    
+    # First check to see that the two trees have the same tips
+    if( setequal(phy1$tip.label, phy2$tip.label) == FALSE ) {
+        stop("Trees do not have the same tip names.")
+    }
+
+    bi1 = get_bipartitions( phy1 )
+    bi2 = get_bipartitions( phy2 )
+    
+    incompat = lapply( bi1, is_incompatible_with_set, bi_list=bi2, phy=phy1 )
+    
+    return ( unlist( incompat ) )
+}
+
+#' Check if bipartition bi is incompatible with the bipartitions in bi_list. 
+#' Each bipartition is defined as a vector of the names of the tips on one side of the
+#' bipartition.
+#' 
+#' @param bi The query bipartition.
+#' @param bi_list A list of the bipartitions to be compared against.
+#' @param phy A phylo object describing a tree that includes all tips under investigation. 
+#' This is used to infer the other half of each bipartition.
+#' @return TRUE if bi is incompatible with any bipartition in bi_list, otherwise FALSE.
+is_incompatible_with_set <- function( bi, bi_list, phy ) {
+
+    incompatible <- lapply( bi_list, are_bipartitions_incompatible, bi2=bi, phy=phy )
+    return ( any( unlist( incompatible ) ) )
+}
+
+#' Check if two bipartitions drawn from trees with the same tips are incompatible with eachother. 
+#' Each bipartition is defined as a vector of the names of the tips on one side of the
+#' bipartition.
+#' 
+#' @param bi1 The first bipartition.
+#' @param bi2 The second bipartition.
+#' @param phy A phylo object describing a tree that includes all tips under investigation. 
+#' This is used to infer the other half of each bipartition.
+#' @return TRUE if bi1 is incompatible with bi2, otherwise FALSE.
+are_bipartitions_incompatible <- function( bi1, bi2, phy ) {
+    
+    labels = phy$tip.label
+    
+    # Take the left side of the bipartition, as given
+    left1  = bi1
+    
+    # Take the right side of the bipartition as all taxa not in the left side
+    right1 = labels[ ! labels %in% left1 ]
+    
+    # Do the same for the second bipartition
+    left2  = bi2
+    right2 = labels[ ! labels %in% left2 ]
+    
+    # Bipartition 1 is compatible with Bipartition 2 if either side of Bipartition 1 
+    # is a subset of either side of Bipartition 2
+    
+    left1_compat  = all( left1 %in% left2 ) | all( left1 %in% right2 )
+    right1_compat = all( right1 %in% left2 ) | all( right1 %in% right2 )
+    
+    compatible = left1_compat | right1_compat
+    
+    return( ! compatible )
+}
+
+#' Get tips and labels of a phylo object.
+#' 
+#' @param phy A phylo object.
+#' @return A vector of all the tips, annotated with their names
+tips <- function(phy) {
+
+    t <- phy$edge[ ! phy$edge[,2] %in% phy$edge[,1] ,2]
+    t <- t[order(t)]
+    
+    names(t) <- phy$tip.label
+    
+    return(t)
+}
+
+#' Get all the descendants of a given node in a tree.
+#' 
+#' @param phy A phylo object that specifies the tree.
+#' @param a The number of a node in phy.
+#' @param keep_node If FALSE, do not include a in the result. 
+#' @return A vector of nodes (specified by number) that are descendants of a. Includes
+#' internal and tip nodes.
+descendants <- function(phy, a, keep_node=FALSE) {
+    # returns a vector of all the descendants of node a, including tips and internal nodes
+    # Based on a breadth-first search
+    q <- c(a)
+    d <- c()
+    while (length(q)>0){
+        # dequeue first item
+        n <- q[1]
+        q <- q[q != n]
+        
+        # add it to the descendants vector
+        d <- append(d, n)
+        
+        # add it's descendants to the queue
+        q <- append(q, phy$edge[phy$edge[,1] == n,2])
+    }
+    
+    # Remove the original source node from the list
+    if ( ! keep_node ){
+        d <- d[d != a ]
+    }
+    return(d)
+}
+
+#' Get all the tips that are descendants of a given node in a tree.
+#' 
+#' @param phy A phylo object that specifies the tree.
+#' @param a The number of a node in phy.
+#' @return A vector of tip nodes (specified by number) that are descendants of a. If a is 
+#' a tip, it is the sole element of this vector.
+tip_descendants <- function(phy, a) {
+    # returns a vector of all the tips that are descendants of a
+    t <- tips(phy)
+    return( t[ t %in% descendants( phy, a, keep_node=TRUE ) ] )
+}
+
+#' Get a bipartition, described as a vector of tip numbers, from a specified tree and 
+#' edge number.
+#' 
+#' @param phy A phylo object that specifies the tree.
+#' @param edge The number of the edge that defines the bipartition.
+#' @return A vector of tip nodes (specified by numbers) that define one half of the 
+#' bipartition (the other half is the set of tip nodes that are not in this vector).
+bipartition_for_edge <- function( phy, edge ){
+
+    # Not certain which of the two nodes that make up the edge is ancestor and which is 
+    # descendant. Descendant will have fewer descendant tips, so pick the node with the 
+    # fewest descendants.
+    
+    left_node  <- phy$edge[edge,1]
+    right_node <- phy$edge[edge,2]
+    
+    left_tips <- tip_descendants( phy, left_node )
+    right_tips <- tip_descendants( phy, right_node )
+    
+    if ( length( left_tips ) < length( right_tips ) ){
+        return( left_tips )
+    }
+    else {
+        return( right_tips )
+    }
+
+}
+
+#' Get a bipartition, described as a vector of tip labels, from a specified tree and 
+#' edge number.
+#' 
+#' @param phy A phylo object that specifies the tree.
+#' @param edge The number of the edge that defines the bipartition.
+#' @return A vector of tip nodes (specified by labels) that define one half of the 
+#' bipartition (the other half is the set of tip nodes that are not in this vector).
+bipartition_for_edge_by_label <- function( edge, phy ){
+    
+    return( phy$tip.label[ bipartition_for_edge( phy, edge ) ]   )
+
+}
+
+#' Get a list of all the bipartitions in a tree.
+#' 
+#' @param phy A phylo object that specifies the tree.
+#' @return A list of bipartitions for the tree. The order of the list corresponds to the 
+#' edges in phy$edge. Bipartitions are specified as a vector of the tip labels that make 
+#' up one half of the bipartition.
+get_bipartitions <- function( phy ){
+    # Takes a tree, returns a list of 
+    edge_nums = as.list( 1:nrow( phy$edge ) )
+    
+    return( lapply( edge_nums, bipartition_for_edge_by_label, phy=phy ) )
+    
+}~;
+}
+
+# IN:  command-line options hash
+#      restart flag
+#      string consisting of the current rep and run
+# OUT: the id of the phylobayes run (used later by ppred)
+# JOB: format command line for phylobayes and run phylobayes
+sub get_params_w_pb {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $id = "$SCRATCH" . $rh_opts->{'name'} . ".$tag";
+    my $pb_reps = $PB_SAMPLING_FREQ + $PB_BURN;
+    my $pb_cmd = "$PB -d $rh_opts->{'aln'} -T $rh_opts->{'constraint_tree'} ";
+    $pb_cmd .= "-x $PB_SAVING_FREQ $pb_reps $id";
+    if ($QUIET) {
+        $pb_cmd .= " >> ${DIR}sowh_stdout_$NAME.txt ";
+        $pb_cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    safe_system($pb_cmd) unless($restart);
+}
+
+# IN: command-line options hash
+#     model type
+#     datatype
+#     restart flag
+#     string consistent of rep and run
+# OUT: alignment length
+#      array of parameter values
+#      array of rates
+# JOB: based on the model, uses one of four methods to parse params.
+sub get_params {
+    my $rh_opts = shift;
+    my $model = shift;
+    my $datatype = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $ra_aln_len = ();
+    my $ra_params = ();
+    my $ra_rates = ();
+
+    if ($rh_opts->{'genmodel'}) {
+        $ra_aln_len = _get_partition_lengths($rh_opts->{'aln'},$rh_opts->{'part'});
+        ($ra_params,$ra_rates) = _model_user($rh_opts);
+        _check_user_model($ra_params,$ra_rates);
+    } elsif ($USEGARLI)  {
+        $ra_aln_len = _get_partition_lengths($rh_opts->{'aln'},0);
+        if ($datatype eq 'DNA') {
+            ($ra_params) = _model_garli_nt($rh_opts,$model,$datatype,$restart,$tag);
+        } elsif ($datatype eq 'AA') {
+            ($ra_params,$ra_rates) = _model_garli_aa($rh_opts,$model,$datatype,$restart,$tag);
+        } else {
+            warn "   sowhat using GARLI only accepts 'nucleotide' or 'aminoacid' as datatype.";
+            die  "    In your conf file ($rh_opts->{'garli_conf'}) you provided $datatype\n";
+        }
+    } else {
+        $ra_aln_len = _get_partition_lengths($rh_opts->{'aln'},$rh_opts->{'part'});
+        if ($datatype eq 'DNA') {
+            ($ra_params) = _model_gtrgamma($rh_opts,$restart,$tag);
+        } elsif ($datatype eq 'AA') {
+            ($ra_params,$ra_rates) = _model_prot($rh_opts,$restart,$tag);
+        } else {
+            ($ra_params) = _model_character_data($rh_opts,$restart,$tag);
+        }
+    }
+    return ($ra_aln_len,$ra_params,$ra_rates);
+}
+
+#IN: hash w/ options
+#    restart flag
+#OUT: array w/ parameter values
+#     array w/ rates
+#JOB: parse params from model specified file
+sub _model_user {
+    my $rh_opts = shift;
+    my @data = ();
+    my @rates = ();
+    my %params = ();
+    my $part_num = 0;
+    my @local_r = ();
+    my $file = $rh_opts->{'genmodel'};
+    my $flag = 0;
+    my $rate_flag = 0;
+    open IN, $file or die "$file:$!";
+    while (my $line = <IN>) {
+        chomp $line;
+        next if ($line =~ m/^\#/);
+        if ($line =~ m/partition = (\d+)/) {
+            $part_num = $1;
+            next;
+        } if ($line =~ m/datatype = nucleotide/) {
+            $data[$part_num]->{'type'} = 'DNA';
+            $data[$part_num]->{'submat'} = 'GTR';
+            $flag = 1;
+            next;
+        } elsif ($line =~ m/datatype = aminoacid/) {
+            $data[$part_num]->{'type'} = 'AA';
+            $flag = 2;
+            next;        
+        } elsif ($line =~ m/datatype = character/) {
+            $data[$part_num]->{'type'} = 'Multi-State';
+            $data[$part_num]->{'submat'} = 'GTR';
+            $flag = 3;
+            next;
+        }
+        if ($flag == 1) {
+            next if ($line =~ m/model/);
+            if ($line =~ m/frequencies = ([0-9.\s]+)/) {
+                $data[$part_num]->{'freqs'} = $1;
+            } if ($line =~ m/rate\[([acgt]+)\] = ([0-9.]+)/) {
+                $data[$part_num]->{'rates'}->{"$1"} = $2;
+            } if ($line =~ m/alpha = ([0-9.]+)/) {
+                $data[$part_num]->{'alpha'} = $1;
+            } if ($line =~ m/pinv = ([0-9.]+)/) {
+                $data[$part_num]->{'pinv'} = $1;
+            }
+        } 
+        if ($flag == 2) {
+            if ($line =~ m/model = GTR/) {
+                $data[$part_num]->{'submat'} = 'GTR';
+                $rate_flag = 1;
+                next;
+            }
+            if ($rate_flag == 1) {
+                my $rate_file = '';
+                if ($line =~ m/rate file = ((.*))/) {
+                    $rate_file = $2;
+                }
+                $rates[$part_num] = _rate_file($rate_file);
+                $rate_flag = 2;
+            } else {
+                if ($line =~ m/model = ((\S+))/) {
+                    $data[$part_num]->{'submat'} = $2;
+                }
+                $rate_flag = 2;
+            } 
+            if ($rate_flag == 2) {
+                if ($line =~ m/frequencies = ([0-9.\s]+)/) {
+                    $data[$part_num]->{'freqs'} = $1;
+                } if ($line =~ m/alpha = ([0-9.]+)/) {
+                    $data[$part_num]->{'alpha'} = $1;
+                } if ($line =~ m/pinv = ([0-9.]+)/) {
+                    $data[$part_num]->{'pinv'} = $1;
+                }
+            }
+        }
+        if ($flag == 3) {
+            next if ($line =~ m/model/);
+            if ($line =~ m/frequencies = ([0-9.\s]+)/) {
+                $data[$part_num]->{'freqs'} = $1;
+            } if ($line =~ m/alpha = ([0-9.]+)/) {
+                $data[$part_num]->{'alpha'} = $1;
+            } if ($line =~ m/pinv = ([0-9.]+)/) {
+                $data[$part_num]->{'pinv'} = $1;
+            }
+        }  
+    }
+    close IN;
+    return (\@data,\@rates);
+}
+
+#IN: rate file
+#OUT: array w/ parrams
+#JOB: parse rates from user specified rate file
+sub _rate_file {
+    my $file = shift;
+    my @local_rates = ();
+    open FILE, "$file" or die "cannot open $file:$!";
+    while (my $rate_line = <FILE>) {
+        my @fields = split/\s/, $rate_line;
+        push @local_rates, \@fields
+    }
+    close FILE;
+    return \@local_rates;
+}
+
+#IN: array w/ params
+#    array w/ rates
+#JOB: check that user model is complete     
+sub _check_user_model {
+    my $ra_params = shift;
+    my $ra_rates = shift;
+    foreach my $params (@{$ra_params}) {
+        if ($params->{'type'} eq 'DNA') {
+            die "expecting frequencies = ... in model file. see example" unless($params->{'freqs'});
+            die "expecting rates = ... in model file. see example" unless($params->{'rates'});           
+        } elsif ($params->{'type'} eq 'Multi-State') {
+            die "expecting frequencies = ... in model file. see example" unless($params->{'freqs'});
+        } elsif ($params->{'type'} eq 'AA') {
+            if ($ra_rates) {
+                die "expecting frequencies = ... in model file. see example" unless($params->{'freqs'});
+            } else {
+                die "expecting frequencies = ... in model file. see example" unless($params->{'freqs'});
+                die "expecting rate file = ... in model file. see example" unless($ra_rates);
+            }
+        } else {
+            die "unexpected data in model file. see example";
+        }
+    }
+}
+
+#IN: hash w/ options
+#    model type
+#    datatype
+#    restart flag
+#    string w/ rep and run
+#OUT: alignment lengths
+#     parameters
+#JOB: get parameters and lengths for seqgen
+#     if max and not full params, run new tree
+sub _model_garli_nt {
+    my $rh_opts = shift;
+    my $model = shift;
+    my $datatype = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $ra_params = [];
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $tre = $rh_opts->{'tre'};
+    my $conf = $rh_opts->{'garli_conf'};
+    my $rerun = $rh_opts->{'rerun'};
+    if ($model =~ m/MAXDNAGARLI/i) {
+        $ra_params = _get_params_from_garli_nt("$SCRATCH" . "t1.i.$tag.screen.log",$datatype);
+    } elsif ($rh_opts->{'max'}) {
+        my $max_model = 'MAXDNAGARLI';
+        _run_best_tree_w_garli('par',$conf,$aln,$max_model,$restart,$rerun,$tag,$tre);
+        $ra_params = _get_params_from_garli_nt("$SCRATCH" . "par.i.$tag.screen.log",$datatype);
+    } else {
+        $ra_params = _get_params_from_garli_nt("$SCRATCH" . "t1.i.$tag.screen.log",$datatype);
+    }
+    return ($ra_params);
+}
+
+#IN: hash w/ options
+#    model type
+#    datatype
+#    restart flag
+#    string w/ rep and run
+#OUT: parameter arrays
+#JOB: get parameters and lengths for seqgen
+#     if max and not full params, run new tree 
+sub _model_garli_aa {
+    my $rh_opts = shift;
+    my $model = shift;
+    my $datatype = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $ra_params = [];
+    my $ra_rates = [];
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $tre = $rh_opts->{'tre'};
+    my $conf = $rh_opts->{'garli_conf'};
+    my $rerun = $rh_opts->{'rerun'};
+    if ($model =~ m/MAXAAGARLI/i) {
+        ($ra_params,$ra_rates) = _get_params_from_garli_aa("$SCRATCH" . "t1.i.$tag.screen.log",$datatype);
+    } elsif ($rh_opts->{'max'}) {
+        my $max_model = 'MAXAAGARLI';
+        _run_best_tree_w_garli('par',$conf,$aln,$max_model,$restart,$rerun,$tag,$tre);
+        ($ra_params,$ra_rates) = _get_params_from_garli_aa("$SCRATCH" . "par.i.$tag.screen.log",$datatype);
+    } else {
+        ($ra_params,$ra_rates) = _get_params_from_garli_aa("$SCRATCH" . "t1.i.$tag.screen.log",$datatype);
+    }
+    return ($ra_params,$ra_rates);
+}
+
+#IN: garli output file
+#    datatype
+#OUT: parameter hash in array
+#JOB: get parameters from garli output
+#     if no free params, set to equal
+#     if free params, parse from output
+sub _get_params_from_garli_nt {
+    my $file = shift;
+    my $datatype = shift;
+    my %paramflds = ();
+    my @tts = ();
+    my %params = ();
+    $params{'type'} = $datatype;
+    open IN, $file or die "$file:$!";
+    my $flag = 0;
+    while (my $line = <IN>) {
+        if ($line =~ m/Parameter estimates/) {
+            $flag = 1;
+        } elsif ($flag == 1) {
+            if ($line =~ m/Model contains no estimated parameters/) {
+                $params{'rates'}->{'ac'} = '1';
+                $params{'rates'}->{'ag'} = '1';
+                $params{'rates'}->{'at'} = '1';
+                $params{'rates'}->{'ct'} = '1';
+                $params{'rates'}->{'cg'} = '1';
+                $params{'rates'}->{'gt'} = '1';
+                $params{'freqs'} = "0.25 0.25 0.25 0.25 "; 
+                $flag = 0;
+            } else {
+                $line =~ s/^\s+//;
+                @tts = split /\s+/, $line;
+                $flag = 2;
+            }
+        } elsif ($flag == 2) { 
+            if ($line =~ m/^rep 1:/) {
+                $line =~ s/^rep 1:\s+//;
+                my @fs = split /\s+/, $line;
+                for(my $i = 0; $i < @tts; $i++) {
+                    $paramflds{"$tts[$i]"} = $fs[$i];
+                }
+                $params{'rates'}->{'ac'} = $paramflds{'r(AC)'};
+                $params{'rates'}->{'ag'} = $paramflds{'r(AG)'};
+                $params{'rates'}->{'at'} = $paramflds{'r(AT)'};
+                $params{'rates'}->{'ct'} = $paramflds{'r(CT)'};
+                $params{'rates'}->{'cg'} = $paramflds{'r(CG)'};
+                $params{'rates'}->{'gt'} = $paramflds{'r(GT)'};
+                my $pi_A = $paramflds{'pi(A)'} || '0.05';
+                my $pi_C = $paramflds{'pi(C)'} || '0.05';
+                my $pi_G = $paramflds{'pi(G)'} || '0.05';
+                my $pi_T = $paramflds{'pi(T)'} || '0.05';
+                $params{'freqs'} = "$pi_A $pi_C $pi_G $pi_T ";
+                $params{'alpha'} = $paramflds{'alpha'} || '0';
+                $params{'pinv'} = $paramflds{'pinv'} || '0';
+            } else {
+                die "unexpected garli log";
+            }
+            $flag = 0;
+        }
+    }
+    close IN;
+    return ([\%params]);
+}
+
+#IN: garli output file
+#    datatype
+#OUT: parameter hash in array
+#     rate array 
+#JOB: parse params from garli output
+#     if equal freqs, set all to 0.05
+sub _get_params_from_garli_aa {
+    my $file = shift;
+    my $datatype = shift;
+    my $flag = 0;
+    my %paramflds = ();
+    my @tts = ();
+    my %params = ();
+    $params{'type'} = $datatype;
+    my @rates = ();
+    open IN, $file or die "$file:$!";
+    while (my $line = <IN>) {
+        if ($line =~ m/Equilibrium State Frequencies: equal/) {
+            $params{'freqs'} = "0.05 0.05 0.05 0.05 0.05 ";
+            $params{'freqs'} .= "0.05 0.05 0.05 0.05 0.05 ";
+            $params{'freqs'} .= "0.05 0.05 0.05 0.05 0.05 ";
+            $params{'freqs'} .= "0.05 0.05 0.05 0.05 0.05 ";
+            $flag = 4;
+        } elsif ($line =~ m/Equilibrium State Frequencies/) {
+            $flag++;
+        } elsif ($flag == 2) {
+            $flag = 3;
+        } elsif ($flag == 3) {
+            if ($line =~ m/Rate Heterogeneity Model/) {
+                $flag = 4;
+            } else {
+                $line =~ s/^\s+//;
+                my @fs = split /\s+/, $line;
+                $params{'freqs'} .= "$fs[0] $fs[1] $fs[2] $fs[3] $fs[4] ";
+            }
+        } elsif ($flag == 4 && $line =~ m/Parameter estimates/) {
+            $flag = 5;
+        } elsif ($flag == 5) {
+            $line =~ s/^\s+//;
+            @tts = split /\s+/, $line;
+            $flag = 6;
+        } elsif ($flag == 6) {
+            die "unexpected garli log:$line " unless ($line =~ m/^rep 1:/);
+            $line =~ s/^rep 1:\s+//;
+            my @fs = split /\s+/, $line;
+            for(my $i = 0; $i < @tts; $i++) {
+                $paramflds{"$tts[$i]"} = $fs[$i];
+            }            
+            $params{'pinv'}  = $paramflds{'pinv'} || '0';
+            $params{'alpha'} = $paramflds{'alpha'} || '0';
+            if (scalar(@fs) >= 190) {
+                my @garli_rates = @fs[0..189];
+                @rates = @garli_rates;
+                @rates = resort_rates(\@garli_rates);
+            }
+            $flag = 0;
+        }
+    }
+    $params{'freqs'} = resort_freqs($params{'freqs'});
+    close IN;
+    # weird array of params is because
+    # if this were partitioned we would have multiple params and rates
+    return ([\%params],\@rates);
+}
+
+#  IN: Garli-sorted rates
+# OUT: Garli rates in an order for seq-gen
+# garli rates are ordered differently than raxml and seq-gen so we
+# need to resort them.
+sub resort_rates {
+    my $ra_r = shift;
+    my %garli = ();
+    my @resorted = ();
+    my @aa = qw(A C D E F G H I K L M N P Q R S T V W Y);
+    my $count = 0;
+    for (my $i = 0; $i < @aa; $i++) {
+        for (my $j = 0; $j < @aa; $j++) {
+            next if ($i > $j);
+            if ($i == $j) {
+                $garli{$aa[$i]}->{$aa[$j]} = 0.0;
+            } else {
+                $garli{$aa[$i]}->{$aa[$j]} = $ra_r->[$count];
+                $garli{$aa[$j]}->{$aa[$i]} = $ra_r->[$count];
+                $count++;
+            }
+        }
+    }
+    my @rax_aa = qw(A R N D C Q E G H I L K M F P S T W Y V);
+    my $rax_count = 0;
+    for (my $i = 0; $i < @rax_aa; $i++) {
+        for (my $j = 0; $j < @rax_aa; $j++) {
+            $resorted[$i]->[$j] = $garli{$rax_aa[$i]}->{$rax_aa[$j]};
+        }
+        $rax_count++;
+    }
+    return \@resorted;
+}
+
+#IN: GARLI sorted freqs
+#OUT: GARLI freqs in order for seq-gen
+#JOB: reorder freqs
+sub resort_freqs {
+    my $freq_str = shift;
+    my @fr = split /\s+/, $freq_str;
+    my $str = "$fr[0] $fr[14] $fr[11] $fr[2] $fr[1] $fr[13] $fr[3] $fr[5] $fr[6] $fr[7] $fr[9] $fr[8] $fr[10] $fr[4] $fr[12] $fr[15] $fr[16] $fr[18] $fr[19] $fr[17] ";
+    return $str;
+}
+
+# IN: hash w/ options
+#     restart flag
+#     string consisting of rep and run
+# OUT: array of parameter values
+# JOB: gets part lengths using the _get_partition_lengths method
+#      gets parameters using the _get_params_from_const_rax method
+sub _model_gtrgamma {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $rerun = $rh_opts->{'rerun'};
+    my $new_part = "$SCRATCH" . $UNLINKED_PARTITION_FILE;
+    my $ra_params = [];
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $tre = $rh_opts->{'tre'};
+    if ($rh_opts->{'mod'} =~ m/GTRGAMMAIX/i) {
+        $ra_params = _get_params_from_const_rax("$SCRATCH" . "RAxML_info.t1.i.$tag");
+    } elsif ($rh_opts->{'max'}) {
+        if ($part) {
+            my $ra_part_names = _make_unlinked_partition_file($part,'DNAX',$new_part);
+            _run_best_tree_w_raxml('par',$aln,$new_part,'GTRGAMMAIX',$restart,$rh_opts->{'rerun'},$tag,$tre);
+        } else {
+            _run_best_tree_w_raxml('par',$aln,$part,'GTRGAMMAIX',$restart,$rh_opts->{'rerun'},$tag,$tre);
+        }
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.par.i.$tag");
+    } else {
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+    }
+    return ($ra_params);
+}
+
+# IN: hash w/ options
+#     restart flag
+#     string consisting of rep and run
+# OUT: array of parameter values
+#      array of rates
+# JOB: if partitioned, makes new part file using _make_unlinked_partition_file
+#      run tree using the unlinked GTR model of raxml using _run_best_tree
+#      gets part lengths using the _get_partition_lengths method
+#      gets parameters using the _get_params_from_const_rax method
+sub _model_prot {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $rerun = $rh_opts->{'rerun'};
+    my $new_part = "$SCRATCH" . $UNLINKED_PARTITION_FILE;
+    my $ra_params = [];
+    my $ra_rates = [];
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $tre = $rh_opts->{'tre'};
+    if ($rh_opts->{'mod'} =~ m/PROTGAMMAGTR_UNLINKED/i) {
+        if ($part) {
+            my $ra_part_names = _make_unlinked_partition_file($part,'GTR_UNLINKED',$new_part);
+            $ra_rates = _parse_rates($tag,'t1',$ra_part_names);
+        } else {
+            $ra_rates = _parse_rates($tag,'t1');
+        }
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+    } elsif ($rh_opts->{'max'}) {
+        if ($part) {
+            my $ra_part_names = _make_unlinked_partition_file($part,'GTR_UNLINKED',$new_part);
+            _run_best_tree_w_raxml('par',$aln,$new_part,'PROTGAMMAGTR_UNLINKED',$restart,$rh_opts->{'rerun'},$tag,$tre);
+            $ra_rates = _parse_rates($tag,'par',$ra_part_names);
+        } else {
+            _run_best_tree_w_raxml('par',$aln,$part,'PROTGAMMAGTR_UNLINKED',$restart,$rh_opts->{'rerun'},$tag,$tre);
+            $ra_rates = _parse_rates($tag,'par');
+        }
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.par.i.$tag");
+    } elsif ($rh_opts->{'mod'} =~ /GTR/) {
+        if ($part) {
+            my $ra_part_names = _make_unlinked_partition_file($part,'GTR_UNLINKED',$new_part);
+            $ra_rates = _parse_rates($tag,'t1',$ra_part_names);
+        } else { 
+            $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+            $ra_rates = _parse_rates($tag,'t1');
+        }
+    } else {
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+    }
+    return ($ra_params,$ra_rates);
+}
+
+# IN: hash w/ options
+#     restart flag
+#     string consisting of rep and run
+# OUT: array of parameter values
+# JOB: gets part lengths using the _get_partition_lengths method
+#      gets parameters using the _get_params_from_const_rax method
+sub _model_character_data {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;    
+    my $new_part = "$SCRATCH" . $UNLINKED_PARTITION_FILE;
+    my $ra_params = [];
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+    my $tre = $rh_opts->{'tre'};
+    if ($rh_opts->{'mod'} =~ m/MULTIGAMMAIX/i) {
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+    } elsif ($rh_opts->{'max'}) {
+        _run_best_tree_w_raxml('par',$aln,$part,'MULTIGAMMAX',$restart,$rh_opts->{'rerun'},$tag,$tre);
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.par.i.$tag");
+    } else {
+        $ra_params = _get_params_from_const_rax("$SCRATCH" ."RAxML_info.t1.i.$tag");
+    }
+    return ($ra_params);
+}
+
+# IN: alignment file
+#     partition file
+# OUT: array of lengths
+# JOB: if partitioning scheme included
+#      return the length of each partition for data
+#      to be simulated separately
+sub _get_partition_lengths {
+    my $aln = shift;
+    my $part = shift;
+    my @lens = ();
+    my @sums = ();
+    if ($part) {
+        open IN, $part or die("cannot open $part:$!");
+        while (my $line = <IN>) {
+            chomp $line;
+            next if ($line =~ m/^\s*$/);
+            if ($line =~ m/^[^,]+,\s*\S+\s*=\s*(.+)*/) {
+                my $sum = 0;
+                @sums = split/[,]/, $1;
+                foreach my $s (@sums) {
+                    if ($s =~ m/\s*(\d+)-(\d+)\s*$/) {
+                        my $len_sum = ($2 - $1 + 1);
+                        $sum += $len_sum;
+                    } elsif ($s =~ m/\s*(\d+)-(\d+)\s*\\(3)\s*$/) {
+                        my $sum1 = (($2 - $1)/3);
+                        my @s1 = split/[.]/, $sum1;
+                        my $len_sum = ($s1[0]+1);
+                        $sum += $len_sum;
+                    } elsif ($s =~ m/\s*(\d+)\s*$/) {
+                        $sum += 1;
+                    } else {
+                        die("unexpected line in $part");
+                    }
+                }
+                push @lens, $sum;
+            }
+        }
+        close IN;
+    } else {
+        open IN, $aln or die("cannot open $aln:$!");
+        my $line = <IN>;
+        if ($line =~ m/^\s*\d+\s+(\d+)\s*$/) {
+            @lens = $1;
+        } else {
+            die("Alignment file should be in PHYLIP format\n");
+        }
+        close IN;
+    }
+    return (\@lens);
+}
+
+# IN: filename
+# OUT: array of parameter values
+# JOB: parse the base freq., alpha value, rates, and data type
+sub _get_params_from_const_rax {
+    my $model = '';
+    my $file = shift;
+    my @data = ();
+    open IN, "$file" or die "cannot open $file:$!";
+    my $part_num = 0;
+    my @fields = ();
+    my $lflag = 0;
+    while (my $line = <IN>) {
+        if ($line =~ m/^Partition: (\d+) with .*/) {
+           $part_num = $1;
+           next;
+        } if ($line =~ m/^Base frequencies: (.*)/) {
+            $data[$part_num]->{'freqs'}  = $1;
+        } if ($line =~ m/^alpha\[/) {
+            @fields = split/alpha/, $line;
+            foreach my $f (@fields) {
+                if ($f =~ m/^\[(\d+)\]: ([0-9.]+)( invar\[\d+\]: ([0-9.]+))?( rates\[\d+\] ([^:]+): ([0-9.\s]+))?(\s?ML estimate base freqs\[\d+\]: ((([0-9.]+)\s)+))?/) {
+                    $part_num = $1;
+                    $data[$part_num]->{'alpha'} = $2;
+                    my $invar1 = $4;
+                    my $rate1 = $6;
+                    my $rate2 = $7;
+                    my $freq1 = $9;
+                    next unless ($invar1||$rate1||$freq1);
+                    if ($invar1) {
+                        $data[$part_num]->{'pinv'} = $invar1;
+                    }
+                    if ($rate1) {
+                        my @code  = split /\s+/, $rate1;
+                        my @rates = split /\s+/, $rate2;
+                        for (my $i = 0; $i < @code; $i++) {
+                            $data[$part_num]->{'rates'}->{$code[$i]} = $rates[$i];
+                        }
+                    }
+                    if ($freq1) {
+                        $data[$part_num]->{'freqs'} = "$freq1";
+                    }
+                }
+            }
+        } elsif ($line =~ m/^Partition: (\d+)\s*$/) {
+            $lflag = $1 + 1;
+        } elsif ($lflag) {
+            if ($line =~ m/^Alignment Patterns: /) {
+                next;
+            } elsif ($line =~ m/^Name: /) {
+                next;
+            } elsif ($line =~ m/DataType: (\S+)/) {
+                $data[$lflag - 1]->{'type'} = $1;
+                next;
+            } elsif ($line =~ m/Substitution Matrix: (\S+)/) {
+                $data[$lflag - 1]->{'submat'} = $1;
+                $lflag = 0;
+            } else {
+                die("unexpected line: $line");
+            }
+        }
+    }
+    close IN;
+    return \@data;
+} 
+
+# IN: partition file
+# OUT: number and lengths of partitions
+#      name of partitions
+# JOB: get partition lengths and names for new file
+sub _make_unlinked_partition_file {
+    my $part = shift;
+    my $model = shift;
+    my $new_part = shift;
+    my ($ra_models,$ra_names,$ra_ranges) = _get_part_info($part);
+    _print_unlinked_part($ra_names,$ra_ranges,$model,$new_part);
+    return $ra_names;
+}
+
+# IN: partition file
+# OUT: number and lengths of partitions
+#      name of partitions
+# JOB: get partition lengths and names for new file
+sub _get_part_info {
+    my $part = shift;
+    open IN, $part or die("cannot open $part:$!");
+    my @fields = ();
+    my @models = ();
+    my @ranges = ();
+    my @names = ();
+    while (my $line = <IN>) {
+        chomp $line;
+        next if ($line =~ m/^\s*$/);
+        @fields = split /=/, $line;
+        $fields[1] or die("unexpected line in part file:$line\nexpecting =");
+        push @ranges, $fields[1];
+        my @model_name = split/\,/, $fields[0];
+        $model_name[1] or die("unexpected line in part file:$line\nexpecting comma");
+        $model_name[0] =~ s/\s//g;
+        $model_name[1] =~ s/\s//g;
+        push @models, $model_name[0];
+        push @names, $model_name[1];
+   }
+   close IN;
+   return (\@models,\@names,\@ranges);
+}
+
+# IN: partition info
+#     new part file name
+# OUT: none
+# JOB: print new paritition info with the GTR_UNLINKED model
+#      necessary for amino acid data
+sub _print_unlinked_part {
+    my $ra_part_names = shift;
+    my $ra_part_ranges = shift;
+    my $model = shift;
+    my $new_part = shift;
+    open OUT, ">$new_part" or die("cannot open $new_part:$!");
+    for (my $i = 0; $i < @{$ra_part_names}; $i++) {
+       print OUT "$model, " . "$ra_part_names->[$i] = $ra_part_ranges->[$i]\n";
+    }
+    close OUT;
+}
+
+# IN: string consisting of rep and run
+#     array of partition names
+# OUT: array of rates for AA data
+# JOB: Get rate matrix for AA data from raxml partition reports
+sub _parse_rates {
+    my $tag = shift;
+    my $par_or_t1 = shift;
+    my $ra_part_names = shift;
+    my @rates = ();
+    if ($ra_part_names) {
+        foreach my $pn (@{$ra_part_names}) {
+            my @local_rates = ();
+            my $matrix = "$SCRATCH" . $PART_RATE_MATRIX_PREFIX . ".$par_or_t1.i.$tag" . "_Partition_" . $pn;
+            open IN, "$matrix" or die("cannot open $matrix:$!");
+            while (my $line = <IN>) {
+                my @fields = split/\s/, $line;
+                push @local_rates, \@fields;
+            }
+            push @rates, \@local_rates;
+            close IN;
+        }
+    } else {
+        my $matrix = "$SCRATCH" . $PART_RATE_MATRIX_PREFIX . ".$par_or_t1.i.$tag" . "_Partition_No Name Provided";
+        open IN, "$matrix" or die("cannot open $matrix:$!");
+        while (my $line = <IN>) {
+            my @fields = split/\s/, $line;
+            push @{$rates[0]}, \@fields;
+        }
+        close IN;
+    }
+    return \@rates;
+}
+
+# IN:  command-line options hash
+#      restart flag
+#      string consisting of the current rep and run
+#      id of the phylobayes run (output of get_params_w_pb method)
+# OUT: array of file names of alignments
+# JOB: format command-line options for ppred
+#      run ppred
+#      return alignment file names
+sub generate_alignments_w_pb {
+    my $rh_opts = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $id = '';
+    my $alns = '';
+    if ($rh_opts->{'recalc'}) {
+        $id = "$SCRATCH" . $rh_opts->{'name'} . ".$tag"; 
+    } else {
+        $id = "$SCRATCH" . $rh_opts->{'name'} . ".0.0";
+    }
+    my $ppred_cmd = "$PPRED -x $PB_BURN $PB_SAMPLING_FREQ $id";
+    if ($QUIET) {
+        $ppred_cmd .= " >> ${DIR}sowh_stdout_$NAME.txt ";
+        $ppred_cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    safe_system($ppred_cmd) unless($restart);
+    $alns = "${id}_sample_0.ali"; 
+    return $alns;
+}
+
+# IN: array of alignment lengths
+#     array of parameter values
+#     array of transtition rates
+#     command line options hash
+#     model type
+#     restart flag
+#     string consisting of run and rep
+#     run number
+# OUT: none
+# JOB: run seqgen
+#      parse the simulated datasets
+#      build the alignment files
+sub generate_alignments {
+    my $ra_aln_len = shift;
+    my $ra_params = shift;
+    my $ra_rates = shift;
+    my $rh_opts = shift;
+    my $model = shift;
+    my $gen_tree = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $ch = shift;
+    my $ts = shift;
+    my $gapflag = $rh_opts->{'nogaps'};
+    my $aln = $rh_opts->{'aln'};
+    my $part = $rh_opts->{'part'};
+
+    _run_seqgen($rh_opts,$model,$ra_aln_len,$ra_params,$ra_rates,$gen_tree,$restart,$tag);
+    if ($part) {
+        _make_sim_part($ra_params,$ra_aln_len,$part);
+    }
+    _print_sim_model($rh_opts,$model,$ra_aln_len,$ra_params,$ra_rates,$gen_tree,$tag,$ch,$ts);
+
+    my $ds = _build_datasets(scalar(@{$ra_params}),$aln,$gapflag,$tag);
+    my $alns = _make_alns($ds,$aln,$tag);
+}
+
+# IN: opts hash
+#     array of alignment lengths
+#     array of parameter values
+#     array of transition rates
+#     restart flag
+#     string consisting of rep and run
+# OUT: none
+# JOB: build a command string for REvolver
+sub _run_revolver {
+    my $rh_opts		= shift;
+    my $model      = shift;
+    my $ra_part_lens = shift;
+    my $ra_params = shift;
+    my $ra_rates  = shift;
+    my $gen_tree  = shift;
+    my $restart   = shift;
+    my $tag       = shift;
+    my $count     = 0;
+    my $tre       = 0;
+    my $trans_model = '';
+
+    my $recalc    = $rh_opts->{'rerun'};    
+    #create hmm-db
+    my $hmmbp = `which hmmbuild`;
+    $hmmbp =~ s/\r|\n//g;
+    my $hmmbuiltcmd = "$hmmbp " . "$SCRATCH" . "input-xml.$tag.$count.xml $rh_opts->{'aln'} >> ${DIR}sowh_stdout_$NAME.txt 2>> ${DIR}sowh_stderr_$NAME.txt";
+    safe_system($hmmbuiltcmd);
+    my $hmmfp = `which hmmfetch`;
+    chomp($hmmfp);
+    #my $hmmsp = `which hmmscan`;
+    #construct revolver .xml
+    for (my $i = 0; $i < @{$ra_params}; $i++) {
+        #print "Durchlauf Nummer: $i\n";
+        my $rh_part = $ra_params->[$i];
+        my $hmmdbpath = "$SCRATCH" . "hmmDB.$tag.$count $rh_opts->{'aln'}";
+        my $treepath = "$SCRATCH" . "$TRE_PREFIX.t1.i.0.0";
+        my $alpha = $rh_part->{'alpha'};
+        my $len = $ra_part_lens->[$i];
+        my $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n";
+        $xml .= "<configdata  xsi:schemaLocation=\"http://www.cibiv.at/Revolver ./input_schema.xsd\" xmlns=\"http://www.cibiv.at/Revolver\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" >\n";
+        $xml .= "	<config>\n";
+        $xml .= "		<hmmdb path=\"$hmmdbpath\"/>\n";
+        $xml .= "		<hmmfetch location=\"$hmmfp\"/>\n";
+        $xml .= "	</config>\n";
+        $xml .= "	<model>\n";
+        $xml .= "		<substitution name=\"WAG\"/>\n";
+        $xml .= "	</model>\n";
+        $xml .= "	<tree path=\"" . "$treepath\" alpha=\"$alpha\"  />\n";
+        $xml .= "	<root>\n";
+        $xml .= "		<randomSequence>\n";
+        $xml .= "			<seq length=\"$len\"/>\n";
+        $xml .= "		</randomSequence>\n";
+        $xml .= "	</root>\n";
+        $xml .= "	<output>\n";
+        $xml .= "		<dir path=\"$SCRATCH\" separateFastaFiles=\"false\" trueAlignment=\"false\" include=\"leaf\"/>\n";
+        $xml .= "	</output>\n";
+        $xml .= "</configdata>\n";
+        #print "$xml";
+        _revolver_save_xml($xml,$SCRATCH,$tag,$count);
+        my $REcmd = "java -cp \"$SEQGEN\" revolver \"$SCRATCH" . "input-xml.$tag.$count.xml\"";
+        safe_system($REcmd);
+        #print "$REcmd";
+        my $RNcmd = "mv $SCRATCH" . "out.fa $SCRATCH" . "REvolver.out.$tag.$count.fa";
+        safe_system($RNcmd);
+        my $c1 = "$SCRATCH" . "REvolver.out.$tag.$count.fa";
+        my $c2 = "$SCRATCH" . "REvolver.out.$tag.$count";
+        _convert_aln_fasta_to_phylip($c1,$c2);
+    }
+}
+
+# IN: 	String with File-Content
+#		Path where to save File
+# Out:	XML-Config File
+# Job:	Writing XML-Config-File for REvolver to HDD
+sub _revolver_save_xml {
+    my $string		= shift;
+    my $path		= shift;
+    my $tag		= shift;
+    my $count		= shift;
+
+#Do Some write Task
+    use strict;
+    use warnings;
+
+    my $filename = "$path" . "input-xml.$tag.$count.xml";
+    #print "Schreibe XML nach $filename\n";
+    #print "Schreibe folgenden String: $string\n";
+    open(my $fh, '>', $filename) or die "Could not open file '$filename' $!";
+    print $fh $string;
+    close $fh;
+    #print "Writer closed\n";
+
+}
+
+# IN:	Fasta-File-Path
+#		Output-File-path
+# Out:	Output-File in PHYLIP-Format
+# Job:	Convert Alignment in Fasta to PHYLIP-Format
+sub _convert_aln_fasta_to_phylip {
+    my $fasta	= shift;
+    my $outfile	= shift;
+
+    #Change line delimiter :
+	local $/='>' ;
+	
+	open ( my $IN, "<$fasta" ) or die "Unable to open $fasta !\n " ;
+	
+	my %Alignements ;
+	my $biggestSequence = 0 ;
+	while (my $i = <$IN> ){
+		my @words = split "\n", $i ;
+	
+		# process header
+		my $header = shift @words ;
+		$header =~ s/\n//g ;
+		$header =~ s/>// ;
+		
+		# process sequence
+		my $seq = join '', @words ;
+		$seq =~ s/\n//g ;
+		$seq =~ s/>//g ;
+		$seq =~ s/\s*$//;
+		my $length = length $seq ;
+		if( $length > $biggestSequence ){ $biggestSequence = $length ; }
+		#print "$header : $length : $seq\n" ;
+		
+		# store information
+		chomp($seq);
+		#$seq .= "\n";
+		$Alignements{$header}{'Length'} = $length ;
+		$Alignements{$header}{'Sequence'} = $seq ;
+	
+	}
+	close $IN ;
+
+	# Check sequence, determine number of sequence :
+	my $numberOfSequence = 0 ;
+	foreach my $i ( keys %Alignements ){
+		unless( $Alignements{$i}{'Length'} == $biggestSequence ){ 
+			#print "$i doesn't have the same length than others ($Alignements{$i}{'Length'}/$biggestSequence)!\n " ; 
+			next ;
+		}
+		$numberOfSequence++ ;
+	} 
+	
+	open OUT , ">$outfile" or die "Unable to open $outfile !\n" ;
+	print OUT " $numberOfSequence $biggestSequence\n" ;
+	foreach my $i ( keys %Alignements ){
+		if( $Alignements{$i}{'Length'} == $biggestSequence ){ print OUT "$i $Alignements{$i}{'Sequence'}\n" ;}
+	}
+	close OUT ;
+}
+
+# IN: opts hash
+#     array of alignment lengths
+#     array of parameter values
+#     array of transition rates
+#     restart flag
+#     string consisting of rep and run
+# OUT: none
+# JOB: build a command for seqgen based on number of separate 
+#          parameter sets (partitions)
+#      use model to determine parameter type
+#      if recal model, add additional count number to tag
+#      run seqgen
+#      if binary data, convert data type in simulated datasets
+sub _run_seqgen {
+    my $rh_opts    = shift;
+    my $model      = shift;
+    my $ra_part_lens = shift;
+    my $ra_params = shift;
+    my $ra_rates  = shift;
+    my $gen_tree  = shift;
+    my $restart   = shift;
+    my $tag       = shift;
+    my $count     = 0;
+    my $tre       = 0;
+    my $trans_model = '';
+
+    my $recalc    = $rh_opts->{'rerun'};
+#    print "rh_opts: $rh_opts \n";
+#    print "model: $model \n";
+#    print "rapart: $ra_part_lens \n";
+#    print "raparams: $ra_params \n";
+#    print "rarates: $ra_rates \n";
+#    print "gentree: $gen_tree \n";
+#    print "restart: $restart \n";
+#    print "tag: $tag \n";
+#    print "count: $count \n";
+#    print "tre: $tre \n";
+#    print "transmodel: $trans_model \n";
+#    die "recalc: $recalc";
+    if ($USEREVOLVER){
+        _run_revolver($rh_opts,$model,$ra_part_lens,$ra_params,$ra_rates,$gen_tree,$restart,$tag);
+    }
+    else {
+        for (my $i = 0; $i < @{$ra_params}; $i++) {
+            my $rh_part = $ra_params->[$i];
+            my $cmd = "$SEQGEN -or ";
+            $cmd .= "-l$ra_part_lens->[$i] ";
+            $cmd .= "-a$rh_part->{'alpha'} " if($rh_part->{'alpha'});
+            $cmd .= "-n1 ";
+            $cmd .= "-i$rh_part->{'pinv'} " if($rh_part->{'pinv'});
+            if ($rh_part->{'type'} eq 'DNA') {
+                $cmd .= "-mGTR ";
+                $cmd .= _get_dna_params($rh_part);
+            } elsif ($rh_part->{'type'} eq 'AA') {
+                if (scalar(@{$ra_rates})) {
+                    $cmd .= "-mGENERAL ";
+                    $cmd .= _get_aa_params($rh_part,$ra_rates->[$i]);
+                } elsif ($rh_opts->{'part'}) {
+                    $trans_model = _translate_model($rh_opts,$rh_part->{'submat'});
+                    $cmd .= "-m$trans_model ";
+                    $cmd .= _get_aa_params($rh_part,0);
+                } else {
+                    $cmd .= "-m$model ";
+                    $cmd .= _get_aa_params($rh_part,0);
+                }
+            } elsif ($rh_part->{'type'} eq 'Multi-State') {
+                $cmd .= "-mGTR ";
+                $cmd .= _get_char_params($rh_part);
+            } else {
+                die(qq~do not know how to handle type: "$rh_part->{'type'}"\n~);
+            }
+        
+            if ($gen_tree) {
+                $tre = $gen_tree;
+            } elsif ($recalc && $USEGARLI) {
+                $tre = "$SCRATCH" . "t1.i.$tag.best.phy";
+            } elsif ($recalc) {
+                $tre = "$SCRATCH" . "$TRE_PREFIX.t1.i.$tag";
+            } elsif ($USEGARLI)  {
+                $tre = "$SCRATCH" . "t1.i.0.0.best.phy";
+            } else {
+                $tre = "$SCRATCH" . "$TRE_PREFIX.t1.i.0.0";
+            }
+            $cmd .= " < $tre > $SCRATCH" . "seqgen.out.$tag.$count";
+            $cmd .= " 2>> ${DIR}sowh_stderr_$NAME.txt" if ($QUIET);
+            $count++;
+            safe_system($cmd) unless($restart);
+            if ($rh_part->{'type'} eq 'Multi-State') {
+                my $file = "seqgen.out.$tag." . ($count - 1);
+                _convert_AT_to_01("$SCRATCH" . $file, $ra_part_lens->[$i]);
+            }
+        }
+    }
+}
+
+# IN: parameter values for partition
+# OUT: seqgen command components
+# JOB: build command based on DNA model
+sub _get_dna_params {
+    my $rh_part = shift;
+    my $cmd = '';
+    die("unexpected freq") unless ($rh_part->{'freqs'});
+    die("unexpected rate") unless ($rh_part->{'rates'}->{'ac'} &&
+          $rh_part->{'rates'}->{'ag'} && $rh_part->{'rates'}->{'ct'} &&
+          $rh_part->{'rates'}->{'cg'} && $rh_part->{'rates'}->{'at'} &&
+          $rh_part->{'rates'}->{'gt'} );
+    $cmd .= "-f$rh_part->{'freqs'} ";
+    $cmd .= "-r$rh_part->{'rates'}->{'ac'} $rh_part->{'rates'}->{'ag'} ";
+    $cmd .= "$rh_part->{'rates'}->{'at'} $rh_part->{'rates'}->{'cg'} ";
+    $cmd .= "$rh_part->{'rates'}->{'ct'} $rh_part->{'rates'}->{'gt'} ";
+    return $cmd;
+}
+
+# IN: parameter values for partition
+#     rate matrix for dataset
+# OUT: seqgen command components
+# JOB: build command based on amino acid model
+sub _get_aa_params {
+    my $rh_part = shift;
+    my $ra_r = shift;
+    my $cmd = '';
+    die("unexpected freq") unless ($rh_part->{'freqs'});
+    $cmd .= "-f$rh_part->{'freqs'} ";
+    my $j = 0;
+    if ($ra_r != 0) {
+        $cmd .= "-r";
+        for (my $i = 0; $i < 20; $i++) {
+            $j++;
+            for (my $k = $j; $k < 20; $k++) {
+                $cmd .= "$ra_r->[$i]->[$k], ";
+            }
+        }
+        die("unexpected rates") unless (scalar(@{$ra_r}) == 21);
+    }
+    return $cmd;
+}
+
+# IN: parameter values for partition
+# OUT: seqgen command components
+# JOB: build command based on binary character model
+sub _get_char_params {
+    my $rh_part = shift;
+    my $cmd = '';
+    die("unexpected freq") unless ($rh_part->{'freqs'});
+    $rh_part->{'freqs'} =~ s/^\s*//;
+    $rh_part->{'freqs'} =~ s/\s*$//;
+    my @freqs = split /\s+/, $rh_part->{'freqs'};
+    unless (scalar(@freqs) == 2) {
+        die("expecting 2 frequencies. Multi-State only works w/binary matrix\n");
+    }
+    $cmd .= "-f$freqs[0],0.0,0.0,$freqs[1] ";
+    return $cmd;
+}
+
+# IN: filename of simulated dataset
+#     partition lengths
+# OUT: none
+# JOB: change simulated data from AT to 01 (nucleotide to binary)
+sub _convert_AT_to_01 {
+    my $file  = shift;
+    my $num_cols = shift;
+    my $updated = '';
+    open IN, $file or die("cannot open $file:$!");
+    while (my $line = <IN>) {
+        chomp $line;
+        if ($line =~ m/^(\S+\s+)(\S+)$/) {
+            my $id = $1;
+            my $seq = $2;
+            if (length($seq) == $num_cols) {
+                $seq =~ tr/AT/01/;
+                $updated .= "$id$seq\n";
+            } else {
+                $updated .= "$line\n";
+            }
+        } else {
+            $updated .= "$line\n";
+        }
+    }
+    close IN;
+    open OUT, ">$file" or die("cannot open >$file:$!");
+    print OUT $updated;
+    close OUT;
+}
+
+#IN: array of parameters
+#    array of alignment lengths
+#    partition file
+#JOB: print new partition file for simulated datasets
+sub _make_sim_part {
+    my $ra_params = shift;
+    my $ra_aln_len = shift;
+    my $part = shift;
+    my $new_part = "$SCRATCH" . "$SIM_PARTITION_FILE";
+    my ($ra_part_models,$ra_part_names,$ra_part_ranges) = _get_part_info($part);
+    my $ra_ranges = _print_ranges($ra_aln_len);
+    _print_new_part_file($ra_part_models,$ra_part_names,$ra_ranges,$new_part);
+}
+
+# IN: alignment length
+# OUT: array of partition lengths
+# JOB: parse partition lengths
+sub _print_ranges {
+    my $ra_lens = shift;
+    my $i = 0;
+    my $last = 0;
+    my @ranges = ();
+    foreach my $d (@{$ra_lens}) {
+        my $lt = ($last + 1);
+        my $rt = ($last + $d);
+        push @ranges, "$lt-$rt";
+        $last += $d;
+    }
+   return \@ranges;
+}
+
+# IN: array of partition titles
+#     array of partition lengths
+# OUT: none
+# JOB: print new partition files
+sub _print_new_part_file {
+    my $ra_part_models = shift;
+    my $ra_part_names = shift;
+    my $ra_ranges = shift;
+    my $file = shift;
+    open OUT, ">$file" or die("cannot open $file:$!");
+    for (my $i = 0; $i < @{$ra_ranges}; $i++) {
+        print OUT "$ra_part_models->[$i], $ra_part_names->[$i] = ";
+        print OUT "$ra_ranges->[$i]\n";
+    }
+    close OUT;
+}
+
+#IN: hash w/ options
+#    model type
+#    array of partition lengths
+#    array of parameters
+#    array of rates
+#    string w/ rep and run
+#JOB: print model parameters for each simulation
+sub _print_sim_model {
+    my $rh_opts = shift;
+    my $model = shift;
+    my $ra_part_lens = shift;
+    my $ra_params = shift;
+    my $ra_rates = shift;
+    my $gen_tree = shift;
+    my $tag = shift;
+    my $ch = shift;
+    my $ts = shift;
+    my $model_cmd = '';
+    my $trans_model = '';
+    my $file = '';
+    my $print_flag = 0;
+    if ($ts == 0) {
+        $print_flag = 1;
+    }
+    if ($rh_opts->{'rerun'}) {
+        $print_flag = 1;
+    } 
+    if ($rh_opts->{'runs'} > 1) {
+        $file = "$DIR" . "sowhat.model.$ch.txt";
+    } else {
+        $file = "$DIR" . 'sowhat.model.txt';
+    }
+
+    if ($print_flag) {
+        if ($rh_opts->{'rerun'}) {
+            open OUT, ">>$file" or die("cannot open $file:$!");  
+            print OUT "\n    model estimate number $tag \n";
+        } else {
+            open OUT, ">$file" or die("cannot open $file:$!");
+        }
+        for (my $i = 0; $i < @{$ra_params}; $i++) {
+            my $rh_part = $ra_params->[$i];
+            print OUT "partition $i:\n";
+            
+            if ($rh_part->{'type'} eq 'DNA') {
+                print OUT "    seq-gen model = GTR\n";
+                my $rh_r = $rh_part->{'rates'};
+                print OUT "    rate [ac] = $rh_r->{'ac'}\n";
+                print OUT "    rate [ag] = $rh_r->{'ag'}\n";
+                print OUT "    rate [at] = $rh_r->{'at'}\n";
+                print OUT "    rate [cg] = $rh_r->{'cg'}\n";
+                print OUT "    rate [ct] = $rh_r->{'ct'}\n";
+                print OUT "    rate [gt] = $rh_r->{'gt'}\n";
+                print OUT "    freq [a c g t] = $rh_part->{'freqs'}\n";
+            } elsif ($rh_part->{'type'} eq 'AA') {
+                if (scalar(@{$ra_rates})) {
+                    print OUT "    seq-gen model = GENERAL\n";
+                    print OUT "    rate matrix:\n";
+                    my $ra_r = $ra_rates->[$i];
+                    my $k = 0;
+                    if ($ra_r != 0) {
+                        for (my $j = 0; $j < 20; $j++) {
+                            $k++;
+                            for (my $l = $k; $l < 20; $l++) {
+                            print OUT "    $ra_r->[$j]->[$l], ";
+                            }
+                        print OUT "\n";
+                        }
+                    }
+                } elsif ($rh_opts->{'part'}) {
+                    $trans_model = _translate_model($rh_opts,$rh_part->{'submat'});
+                    print OUT "    model = $trans_model\n";
+                } else {
+                    print OUT "    model = $model\n";
+                }
+                print OUT "    freq. [a r n d c q e g h i l k m f p s t w y v]\n";
+                print OUT "         = $rh_part->{'freqs'}\n";
+            } elsif ($rh_part->{'type'} eq 'Multi-State') {
+                print OUT "    model = GTR\n";
+                print OUT "    freq [0 1] = $rh_part->{'freqs'}\n";
+            } else {
+                die(qq~do not know how to handle type: "$rh_part->{'type'}"\n~);
+            }
+    
+            print OUT "    alpha = $rh_part->{'alpha'}\n" if($rh_part->{'alpha'});
+            print OUT "    pinv  = $rh_part->{'pinv'}\n" if($rh_part->{'pinv'});
+    
+            if ($gen_tree) {
+                print OUT "    tree used for simulation: \n";
+                print OUT "        $gen_tree\n";
+            } elsif ($rh_opts->{'rerun'} && $USEGARLI) {
+                print OUT "    tree used for simulation: \n";
+                print OUT "        $SCRATCH" . "t1.i.$tag.best.phy\n";
+            } elsif ($rh_opts->{'rerun'}) {
+                print OUT "    tree used for simulation: \n";
+                print OUT "        $SCRATCH" . "$TRE_PREFIX.t1.i.$tag\n";
+            } elsif ($USEGARLI)  {
+                print OUT "    tree used for simulation: \n";
+                print OUT "        $SCRATCH" . "t1.i.0.0.best.phy\n";
+            } else {
+                print OUT "    tree used for simulation: \n";
+                print OUT "        $SCRATCH" . "$TRE_PREFIX.t1.i.0.0\n";
+            }
+
+            if ($rh_opts->{'nogaps'}) {
+                print OUT "    gaps (if any) not propagated into sim alignments\n";
+            } else {
+                print OUT "    gaps (if any) propagated into sim alignments\n";
+            }
+        }
+    }
+    close OUT;
+}
+
+# IN: number of separater parameter sets (partitions)
+#     empirical aln file
+#     gapflag
+#     string consisting of rep and run
+# OUT: array of simulated data
+# JOB: parse titles and data
+#      build alignment files
+sub _build_datasets {
+    my $num = shift;
+    my $aln = shift;
+    my $gapflag = shift;
+    my $tag = shift;
+    my @allseqs = ();
+    my $ra_ids;
+    if ($USEREVOLVER) {
+		$ra_ids = _get_ids_from_seqgen_out("$SCRATCH" . "REvolver.out.$tag.0");
+	 } else {
+		$ra_ids = _get_ids_from_seqgen_out("$SCRATCH" . "seqgen.out.$tag.0");
+	}
+    for (my $i = 0; $i < $num; $i++) {
+        if ($USEREVOLVER) {
+			my $ra_seqs = _get_seqs_from_seqgen_out("$SCRATCH" . "REvolver.out.$tag.$i");
+			push @allseqs, $ra_seqs;
+		} else {
+			my $ra_seqs = _get_seqs_from_seqgen_out("$SCRATCH" . "seqgen.out.$tag.$i");
+			push @allseqs, $ra_seqs;
+		}
+    }
+    my $ds = _make_datasets_from_allseqs($ra_ids,$aln,$gapflag,\@allseqs);
+    return $ds;
+}
+
+# IN: filename of first simulated dataset
+# OUT: array of taxa titles
+# JOB: parse taxa titles
+sub _get_ids_from_seqgen_out {
+    my $file = shift;
+    my @ids = ();
+    open IN, $file or die("cannot open $file:$!");
+    my $topline = <IN>;
+    while (my $line = <IN>) {
+        next if ($line =~ m/^\s*$/);
+        last if ($line eq $topline);
+        my @fields = split /\s+/, $line;
+        push @ids, $fields[0];
+    }
+    close OUT;
+    return \@ids;
+}
+
+# IN: filename of each simulated dataset
+# OUT: array of simulated data
+# JOB: parse simulated data
+sub _get_seqs_from_seqgen_out {
+    my $file = shift;
+    my @seqs = ();
+    open IN, $file or die("cannot open $file:$!");
+    my $topline = <IN>;
+    my $count = 0;
+    while (my $line = <IN>) {
+        next if ($line =~ m/^\s*$/);
+        if ($line eq $topline) {
+            $count++;
+            next;
+        }
+        chomp $line;
+        my @fields = split /\s+/, $line;
+        push @{$seqs[$count]}, $fields[1];
+    }
+    close OUT;
+    return \@seqs;
+}
+
+# IN: array of taxa titles
+#     alignment file
+#     flag for gap simulation
+#     array of simulated data
+# OUT: array of formatted alignment file content
+# JOB: concatenate data, format for alignment files
+#      if nogaps option, do not stencil gaps in seqs
+sub _make_datasets_from_allseqs {
+    my $ra_ids = shift;
+    my $real_aln = shift;
+    my $gapflag = shift;
+    my $ra_all = shift;
+    my @ds = ();
+    foreach my $ra_seqs (@{$ra_all}) {
+        for (my $i = 0; $i < @{$ra_seqs}; $i++) {
+            for (my $j = 0; $j < @{$ra_ids}; $j++) {
+                $ds[$i]->[$j] .= "$ra_seqs->[$i]->[$j]";
+            }
+        }
+    }
+    unless ($gapflag) {
+        @ds = _gap_stencil($real_aln,@ds);
+    }
+    my $len = _get_len_from_id_lens($ra_ids);
+    my $formatted = '';
+    my $seqlen = length($ds[0]->[0]);
+    my $numseq = scalar(@{$ds[0]});
+    my $header = " $numseq $seqlen\n";
+    foreach my $ra_d (@ds) {
+        my $aln = $header;
+        for (my $i = 0; $i < @{$ra_ids}; $i++) {
+            $aln .= sprintf("%${len}s", $ra_ids->[$i]);
+            $aln .= "$ra_d->[$i]\n";
+        }
+        $formatted = $aln;
+    }
+    return $formatted;
+}
+
+# IN: alignment file
+#    array of sequences
+# OUT: array of sequences
+# JOB: parse positions of gaps from aln
+#      replace chars with gaps in seqs
+sub _gap_stencil {
+    my $aln = shift;
+    my $ra_seqs = shift;
+    my $ra_real_seq = _get_seqs_from_seqgen_out($aln,0,0);
+    my $count = 0;
+    foreach my $sq (@{$ra_real_seq->[0]}) {
+        my $string = $sq;
+        my $char = '-';
+        my $offset = 0;
+        my $result = index($string, $char, $offset);
+        while ($result != -1) {
+            $offset = $result + 1;
+            $result = index($string, $char, $offset);
+            substr($ra_seqs->[$count],($offset-1),1,'-');
+        }
+        $count++;
+    }
+    return $ra_seqs;
+}
+
+# IN: array of taxa titles
+# OUT: length of titles
+# JOB: return lenght of titles for alignment files
+sub _get_len_from_id_lens {
+    my $ra_ids = shift;
+    my $longest = 0;
+    foreach my $id (@{$ra_ids}) {
+        $longest = length($id) if (length($id) > $longest);
+    }
+    my $sprintf_val = (($longest + 1) * -1);
+    return $sprintf_val;
+}
+
+# IN: array of formatted datasets
+#     actual alignment file
+#     string consisting of rep and run
+# OUT: simulated alignment files
+# JOB: print array of formatted datasets into alignment files
+sub _make_alns {
+    my $ds = shift;
+    my $aln = shift;
+    my $tag = shift;
+    my $file = "$SCRATCH" . "aln.phy.$tag";
+    open OUT, ">$file" or die("cannot open >$file:$!");
+    print OUT $ds;
+    close OUT;
+    return $file;
+}
+
+# IN: array of simulated alignments
+#     command-line hash of options
+#     length of alignments
+#     restart flag
+#     string containing rep and run
+# OUT: none
+# JOB: create new partitioning scheme
+#      run RAxML on simulated alignments
+sub run_gen_trees {
+    my $alns = shift;
+    my $rh_opts = shift;
+    my $ra_aln_len = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $part = $rh_opts->{'part'};
+    my $mod = $rh_opts->{'mod'};
+    my $tre = $rh_opts->{'constraint_tree'};
+
+    my $treetwo = '';
+    if ($rh_opts->{'treetwo'}) {
+        $treetwo = $rh_opts->{'treetwo'};
+    }
+
+    if ($USEGARLI)  {
+        _run_garli_on_genset($rh_opts,$alns,$restart,'ml.'.$tag,$treetwo);
+        _run_garli_on_genset($rh_opts,$alns,$restart,'t1.'.$tag,$tre);
+    } else {
+        _run_rax_on_genset($alns,$mod,$part,$restart,'ml.'.$tag,$treetwo);
+        _run_rax_on_genset($alns,$mod,$part,$restart,'t1.'.$tag,$tre);
+    }
+}
+
+sub _run_garli_on_genset {
+    my $rh_opts = shift;
+    my $alns = shift;
+    my $restart = shift;
+    my $tag = shift;
+    my $const = shift;
+
+    my $conf = $rh_opts->{'garli_conf'};
+    my ($fh,$file) = File::Temp::tempfile( SUFFIX => '.garli.conf',
+                                            UNLINK => 1,
+                                            DIR => $SCRATCH);
+    open IN, $conf or die "cannot open $conf:$!";
+    print $fh "datafname = $alns\n";
+    if ($const) {
+        print $fh "ofprefix = $SCRATCH/$tag\n";
+    } else {
+        print $fh "ofprefix = $SCRATCH/$tag\n";
+    }
+    print $fh "searchreps = 1\n";
+    print $fh "outputphyliptree = 1\n";
+    if ($const) {
+        print $fh "constraintfile = $const\n";
+    }
+    while (my $line = <IN>) {
+        next if ($line =~ m/^\s*outputphyliptree\s*=\s/i);
+        next if ($line =~ m/^\s*datafname\s*=\s/i);
+        next if ($line =~ m/^\s*constraintfile\s*=\s/i);
+        next if ($line =~ m/^\s*ofprefix\s*=\s/i);
+        next if ($line =~ m/^\s*searchreps\s*=\s/i);
+        print $fh $line;
+    }
+    my $cmd = "$GARLI $file";
+    if ($QUIET) {
+        $cmd .= " >> ${DIR}sowh_stdout_$NAME.txt ";
+        $cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    close IN;
+    safe_system($cmd) unless($restart);
+    File::Temp::cleanup();
+}
+
+# IN: array of simulated alignments
+#     model
+#     partition file
+#     tree file
+#     restart flag
+#     string consisting of rep and run
+# OUT: none
+# JOB: create command for RAxML
+#      run command
+#      create command constrained by tree
+#      run command
+sub _run_rax_on_genset {
+    my $alns    = shift;
+    my $mod     = shift;
+    my $part    = shift;
+    my $cmd     = '';
+    my $restart = shift;
+    my $tag     = shift;
+    my $tre     = shift;
+
+    $cmd  = "$RAX -p 1234 --no-bfgs -w $SCRATCH -m $mod -s $alns ";
+    if ($tre) {
+        $cmd .= "-n $tag -g $tre ";
+    } else {
+        $cmd .= "-n $tag ";
+    }
+    if ($part) {
+        $cmd .= "-q $SCRATCH" . "$SIM_PARTITION_FILE ";
+    }
+    if ($QUIET) {
+        $cmd .= ">> ${DIR}sowh_stdout_$NAME.txt ";
+        $cmd .= "2>> ${DIR}sowh_stderr_$NAME.txt";
+    }
+    safe_system($cmd) unless($restart);
+}
+
+# IN: hash w/ options
+#     array of likelihood differences in real data
+#     array of likelihood differences in sim data
+#     array of mean differences
+#     mean difference at last iteration
+#     current mean 
+#     last mean
+#     rep
+#     run
+#     string w/ rep and run
+# OUT: max likelihood score of new iteration
+#      constrained likelihood of new iteration
+#      hash of statistical measures
+#      array of likelihood differences for this run
+#      distribution file
+# JOB: set mean to last mean
+#      parse most recent values for null distribution 
+#      if recalculate, create distribution of test stats
+#      calculate liklihood differences  
+#      parse additional statitistics
+#      print distribution of differences
+sub evaluate_distribution {
+    my $rh_opts = shift;
+    my $ra_output = shift;
+    my $ra_delta_dist = shift;
+    my $ra_deltaprime_dist = shift;
+    my $ra_mean = shift;
+    my $ra_current_mean = shift;
+    my $ra_pen_mean = shift;
+    my $ts = shift;
+    my $ch = shift;
+    my $tag = shift;
+    my $name = $rh_opts->{'name'};
+    my $rerun = $rh_opts->{'rerun'};
+
+    $ra_pen_mean->[$ch] = $ra_current_mean->[$ch];
+
+    my ($dist,$const_dist);
+    if ($USEGARLI)  {
+        $dist = _get_distribution_from_garli(0,$tag);
+        $const_dist = _get_distribution_from_garli(1,$tag);
+    } else {
+        $dist = _get_distribution_from_rax(0,$tag);
+        $const_dist = _get_distribution_from_rax(1,$tag);
+    }
+    $dist = $dist || 0;
+    $const_dist = $const_dist || 0;
+
+    my ($best_ml_score,$best_t1_score) = 0;
+    if ($USEGARLI && $rerun) {
+        $best_ml_score = _get_best_garli_score("$SCRATCH" . "ml.i.$tag.screen.log");
+        $best_t1_score = _get_best_garli_score("$SCRATCH" . "t1.i.$tag.screen.log");
+        $ra_delta_dist->[$ch][$ts] = $best_ml_score - $best_t1_score;
+    } elsif ($USEGARLI)  {
+        $best_ml_score = _get_best_garli_score("$SCRATCH" . "ml.i.0.0.screen.log");
+        $best_t1_score = _get_best_garli_score("$SCRATCH" . "t1.i.0.0.screen.log");
+        $ra_delta_dist->[$ch][$ts] = $best_ml_score - $best_t1_score;
+    } elsif ($rerun) {
+        $best_ml_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.ml.i.$tag");
+        $best_t1_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.t1.i.$tag");
+        $ra_delta_dist->[$ch][$ts] = $best_ml_score - $best_t1_score;
+    } else {
+        $best_ml_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.ml.i.0.0");
+        $best_t1_score = _get_best_rax_score("$SCRATCH" . "RAxML_info.t1.i.0.0");
+        $ra_delta_dist->[$ch][0] = $best_ml_score - $best_t1_score;
+    }
+    
+    $ra_deltaprime_dist->[$ch][$ts] = $dist - $const_dist;
+    my ($rh_stats,$r_out) = _get_stats($ra_delta_dist->[$ch],$ra_deltaprime_dist->[$ch]);
+    _structure_output($r_out,$ra_output,$best_ml_score,$best_t1_score);
+
+    $ra_mean->[$ch][$ts] = $rh_stats->{'mean'};
+    $ra_current_mean->[$ch] = $rh_stats->{'mean'};
+
+
+    return ($best_ml_score,$best_t1_score,$rh_stats,$ra_deltaprime_dist->[$ch]);
+}
+
+# IN: flag for constrained ml score
+#     string consisting of rep and run
+# OUT: array of likelihood scores
+# JOB: parse likelihood scores from RAxML output
+sub _get_distribution_from_garli {
+    my $w_const = shift;
+    my $tag = shift;
+    my $dist = '';
+    my $file = '';
+    if ($w_const) {
+        $file = "$SCRATCH" . "t1.$tag.screen.log";
+    } else {
+        $file = "$SCRATCH" . "ml.$tag.screen.log";
+    }
+    open IN, $file or die("cannot open $file:$!");
+    while (my $line = <IN>) {
+        if ($line =~ m/^Final score = (\S+)/) {
+            my $likelihood = $1;
+            die("unexpected multiple matches in $file") if ($dist);
+            $dist = $likelihood;
+        }
+        chomp $line;
+    }
+    close OUT;
+    return $dist;
+}
+
+# IN: flag for constrained ml score
+#     string consisting of rep and run
+# OUT: array of likelihood scores
+# JOB: parse likelihood scores from RAxML output
+sub _get_distribution_from_rax {
+    my $w_const = shift;
+    my $tag = shift;
+    my $dist = '';
+    my $file = '';
+    if ($w_const) {
+        $file = "$SCRATCH" . "RAxML_info.t1.$tag";
+    } else {
+        $file = "$SCRATCH" . "RAxML_info.ml.$tag";
+    }
+    open IN, $file or die("cannot open $file:$!");
+    while (my $line = <IN>) {
+        if ($line =~ m/^Inference\[0\] final[^:]+: ([-0-9.]+)/) {
+            my $likelihood = $1;
+            die("unexpected multiple matches in $file") if ($dist);
+            $dist = $likelihood;
+        }
+        chomp $line;
+    }
+    close OUT;
+    return $dist;
+}
+
+# IN: filename
+# OUT: likelihood score
+# JOB: parse likelihood score of real data
+sub _get_best_garli_score {
+    my $file = shift;
+    my $ml_score = '';
+    open IN, $file or die("cannot open $file:$!");
+    while (my $line = <IN>) {
+        chomp $line;
+        if ($line =~ m/^Final score = (\S+)/) {
+            $ml_score = $1;
+        }
+    }
+    die "could not get ml score from garli ($file)" unless ($ml_score);
+    close OUT;
+    return $ml_score;
+}
+
+
+# IN: filename
+# OUT: likelihood score
+# JOB: parse likelihood score of real data
+sub _get_best_rax_score {
+    my $file = shift;
+    my $ml_score = '';
+    open IN, $file or die("cannot open $file:$!");
+    while (my $line = <IN>) {
+        chomp $line;
+        if ($line =~ m/^Final GAMMA-based Score of best tree (\S+)/) {
+            $ml_score = $1;
+        }
+        if ($line =~ m/^Final ML Optimization Likelihood: (\S+)/) {
+            $ml_score = $1;
+        }
+    }
+    close OUT;
+    return $ml_score;
+}
+
+# IN: array of test statistics
+#     array of null distribution
+# OUT: hash of statistics
+# JOB: run R for statistical test
+sub _get_stats {
+    my $ra_delta_dist = shift;
+    my $ra_deltaprime_dist = shift;
+    my $ts = scalar(@{$ra_deltaprime_dist});
+    my $delta_string = @{$ra_delta_dist};
+    my $deltaprime_string = @{$ra_deltaprime_dist};
+    if($ts > 1) {
+        $delta_string = join ', ', @{$ra_delta_dist};
+        $deltaprime_string = join ', ', @{$ra_deltaprime_dist};
+    }
+    my $R = Statistics::R->new() ;
+my $cmds = <<EOF;
+dtb <- c($deltaprime_string)
+teststat <- mean(c($delta_string))
+n <- $ts
+mn <- mean(dtb)
+md <- median(dtb)
+if (n > 9) {
+    q0 <- quantile(dtb,0,names=FALSE)
+    q75 <- quantile(dtb,0.75,names=FALSE)
+    q25 <- quantile(dtb,0.25,names=FALSE)
+    q100 <- quantile(dtb,1,names=FALSE)
+    rk <- length(dtb[dtb > teststat])
+    p <- (rk / n)
+    if (p < (1/n)) {
+        newp = round((1 / n),digits=6)
+        less = "<"
+        p = noquote(paste(less,newp,sep=""))
+    }
+    ci <- binom.test(rk,n,p=0.5)
+    pu <- ci\$conf.int[2]
+    pl <- ci\$conf.int[1]
+} else {
+    q0 <- NULL
+    q25 <- NULL
+    q75 <- NULL
+    q100 <- NULL
+    rk <- NULL
+    p <- NULL
+    pu <- NULL
+    pl <- NULL
+}
+mn
+q0
+q25
+md
+q75
+q100
+n
+teststat
+rk
+pu
+pl
+p
+EOF
+    my $r_out = $R->run($cmds);
+    my $rh_stats = _parse_stats($r_out);
+    return ($rh_stats,$r_out);
+}
+
+# IN: output of R
+# OUT: hash of statistics
+# JOB: parse R output
+sub _parse_stats {
+    my $str = shift;
+    my %stats = ();
+    $str =~ s/^\[\d+\] // or warn "unexpected output from R";
+    my @data = split /\n\[\d+\] /, $str;
+    $stats{'mean'} = $data[0];
+    $stats{'lowest'} = $data[1];
+    $stats{'firstquart'} = $data[2];
+    $stats{'median'} = $data[3];
+    $stats{'thridquart'} = $data[4];
+    $stats{'highest'} = $data[5];
+    $stats{'sample_size'} = $data[6];
+    $stats{'teststat'} = $data[7];
+    $stats{'rank'} = $data[8];
+    $stats{'pu'} = $data[9];
+    $stats{'pl'} = $data[10];
+    $stats{'pval'} = $data[11];
+    return \%stats;
+}
+
+sub _structure_output {
+    my $str = shift;
+    my $ra_output = shift;
+    my $best_ml_score = shift;
+    my $best_t1_score = shift;
+    $str =~ s/^\[\d+\] // or warn "unexpected output from R";
+    my @data = split /\n\[\d+\] /, $str;
+
+    $ra_output->[0]->{'name'} = 'Null_Distribution';
+    $ra_output->[0]->{'description'} = 'statistics describing the null distribution';
+
+    $ra_output->[0]->{'value'}->[0]->{'name'} = 'null_mean';
+    $ra_output->[0]->{'value'}->[0]->{'value'} = $data[0];
+    $ra_output->[0]->{'value'}->[0]->{'description'} = 'mean';
+    $ra_output->[0]->{'value'}->[1]->{'name'} = 'null_0_perc';
+    $ra_output->[0]->{'value'}->[1]->{'value'} = $data[1];
+    $ra_output->[0]->{'value'}->[1]->{'description'} = 'lowest value';
+    $ra_output->[0]->{'value'}->[2]->{'name'} = 'null_25_perc';
+    $ra_output->[0]->{'value'}->[2]->{'value'} = $data[2];
+    $ra_output->[0]->{'value'}->[2]->{'description'} = '25% quartile';
+    $ra_output->[0]->{'value'}->[3]->{'name'} = 'null_50_perc';
+    $ra_output->[0]->{'value'}->[3]->{'value'} = $data[3];
+    $ra_output->[0]->{'value'}->[3]->{'description'} = 'median';
+    $ra_output->[0]->{'value'}->[4]->{'name'} = 'null_75_perc';
+    $ra_output->[0]->{'value'}->[4]->{'value'} = $data[4];
+    $ra_output->[0]->{'value'}->[4]->{'description'} = '75% quartile';
+    $ra_output->[0]->{'value'}->[5]->{'name'} = 'null_100_perc';
+    $ra_output->[0]->{'value'}->[5]->{'value'} = $data[5];
+    $ra_output->[0]->{'value'}->[5]->{'description'} = 'highest value';
+    $ra_output->[0]->{'value'}->[6]->{'name'} = 'sample_size';
+    $ra_output->[0]->{'value'}->[6]->{'value'} = $data[6];
+    $ra_output->[0]->{'value'}->[6]->{'description'} = 'sample size';
+ 
+    $ra_output->[1]->{'name'} = 'Test_Statistic';
+    $ra_output->[1]->{'description'} = 'values describing the test statistic'; 
+    
+    $ra_output->[1]->{'value'}->[0]->{'name'} = 'Best_ml_score';
+    $ra_output->[1]->{'value'}->[0]->{'description'} = 'empirical lnL, unconstrained';
+    $ra_output->[1]->{'value'}->[0]->{'value'} = $best_ml_score;
+    $ra_output->[1]->{'value'}->[1]->{'name'} = 'best_t1_score';
+    $ra_output->[1]->{'value'}->[1]->{'description'} = 'empirical lnL, constrained';
+    $ra_output->[1]->{'value'}->[1]->{'value'} = $best_t1_score;
+    $ra_output->[1]->{'value'}->[2]->{'name'} = 'test_statistic';
+    $ra_output->[1]->{'value'}->[2]->{'value'} = $data[7];
+    $ra_output->[1]->{'value'}->[2]->{'description'} = 'difference in lnL, test statistic';
+    $ra_output->[1]->{'value'}->[3]->{'name'} = 'rank';
+    $ra_output->[1]->{'value'}->[3]->{'value'} = $data[8];
+    $ra_output->[1]->{'value'}->[3]->{'description'} = 'rank of test statistic';
+
+    $ra_output->[2]->{'name'} = 'SOWH_Results';
+    $ra_output->[2]->{'description'} = 'outcome of the parametric test';
+    
+    $ra_output->[2]->{'value'}->[0]->{'name'} = 'upper_confidence_interval';
+    $ra_output->[2]->{'value'}->[0]->{'value'} = $data[9];
+    $ra_output->[2]->{'value'}->[0]->{'description'} = 'upper 95% conf. int. of p-value';
+    $ra_output->[2]->{'value'}->[1]->{'name'} = 'lower_confidence_interval';
+    $ra_output->[2]->{'value'}->[1]->{'value'} = $data[10];
+    $ra_output->[2]->{'value'}->[1]->{'description'} = 'lower 95% conf. int. of p-value';
+    $ra_output->[2]->{'value'}->[2]->{'name'} = 'p_value';
+    $ra_output->[2]->{'value'}->[2]->{'value'} = $data[11];
+    $ra_output->[2]->{'value'}->[2]->{'description'} = 'p-value of the null hypothesis ';
+}
+
+# IN: array of cumulative mean of null dist
+#     runs
+#     reps
+# OUT: none
+# JOB: plot cumulative mean of all runs
+sub plot_runs {
+    my $ra_mean = shift;
+    my $runs = shift;
+    my $ts = shift;
+    my $R = Statistics::R->new();
+    my $ra_mean_str = ();
+    my $i = 0;
+    if(scalar($ts > 0)) {
+        foreach(@{$ra_mean}) {
+            $ra_mean_str->[$i] = "m[,($i + 1)] <- c(" . join ( ', ', @{$ra_mean->[$i]}) . ');';
+            $i++;
+        }
+        my $ra_str = join ( "\n", @{$ra_mean_str});  
+        my $cmds = <<EOF;
+m <- data.frame(row.names=1:($ts + 1))
+$ra_str
+postscript("$DIR/allmeans.$runs.eps",horizontal = FALSE, onefile = FALSE, paper = "special",width=6.0,height=6.0)
+par(mar=c(5, 4, 4, 2) + 0.1)
+plot(m[,1],ylim=c(min(m),max(m)),type="l",ylab="Cumulative Mean of Null Distribution", xlab="Sample Size") 
+for (i in 2:$runs){
+lines(m[,i],type="l",col=i)
+}
+dev.off()
+EOF
+        my $r_out = $R->run($cmds);
+    }
+}
+
+# IN: run
+#     rep
+#     current mean
+#     last mean
+#     ratio of current score to last
+#     array of mean values
+#     flag for plotting in R
+# OUT: none
+# JOB: calculate mean ratio
+#      plot mean ratio of each run
+#      plot cumulative mean of each run 
+sub calc_ratio {
+    my $ch = shift;
+    my $ts = shift;
+    my $ra_current_mean = shift;
+    my $ra_pen_mean = shift;
+    my $ra_ratio = shift;
+    my $ra_mean = shift;
+    my $plot_flag = shift;
+    my $calc_ratio = 0;
+    my $current_mean = $ra_current_mean->[$ch];
+    my $pen_mean = $ra_pen_mean->[$ch];
+    if($pen_mean) {
+        $calc_ratio = $current_mean / $pen_mean;
+    } else {
+        $calc_ratio = '0';
+    }
+    $ra_ratio->[$ch][$ts] = abs(1-$calc_ratio);
+
+    my $R = Statistics::R->new();
+    for(my $j=0; $j < 10; $j++) {
+        $ra_ratio->[$ch][$j] = 0;
+    }
+
+    $ra_ratio = $ra_ratio->[$ch]; 
+    $ra_mean = $ra_mean->[$ch]; 
+
+    if(scalar(@{$ra_ratio}) > 1 && $plot_flag) {
+        my $ratio_str = join ', ', @{$ra_ratio};
+        my $mean_str = join ', ', @{$ra_mean};
+        my $cmds = <<EOF;
+rationull <- c($ratio_str)
+postscript("$DIR/ratio.$ch.eps",horizontal = FALSE, onefile = FALSE, paper = "special",width=4.0,height=4.0)
+par(mar=c(5, 4, 4, 2) + 0.1)
+plot(rationull,ylim=c(min(rationull),max(rationull)),ylab="1 - Ratio", xlab="Sample Size",pch=20) 
+dev.off()
+meannull <- c($mean_str)
+postscript("$DIR/mean.$ch.eps",horizontal = FALSE, onefile = FALSE, paper = "special",width=4.0,height=4.0)
+par(mar=c(5, 4, 4, 2) + 0.1)
+plot(meannull,type="l",ylim=c(min(meannull),max(meannull)),ylab="Cumulative Mean of Null Distribution", xlab="Sample Size") 
+dev.off()
+EOF
+        my $r_out = $R->run($cmds);
+    }
+}
+
+# IN: array with output values
+#    array of test statistics
+#    array of null distribution
+#    current ration value
+#    hash of command-line options
+#    version
+#    tag
+# OUT: none
+# JOB: print report
+sub print_report {
+    my $ra_output = shift;
+    my $ra_d = shift;
+    my $ra_delta_dist = shift;
+    my $ratio = shift;
+    my $rh_opts = shift;
+    my $version = shift;
+    my $ch = shift;
+    
+    my $json_file = '';
+    my $txt_file = '';
+    my $fd_file = '';
+
+    if ($rh_opts->{'runs'} > 1) {
+        $txt_file = $DIR . "sowhat.results.$ch.txt"; 
+        $fd_file = $DIR . "sowhat.distribution.$ch.txt"; 
+        $json_file = $DIR . "sowhat.results.$ch.json"; 
+    } else {
+        $txt_file = $DIR . "sowhat.results.txt";
+        $fd_file = $DIR . "sowhat.distribution.txt"; 
+        $json_file = $DIR . "sowhat.results.json";
+    }
+    if ($rh_opts->{'json'}) {
+        my $json_string = JSON::encode_json($ra_output);
+        open JOUT, ">$json_file" or die("cannot open >$json_file:$!");
+        print JOUT "$json_string";
+        close JOUT;
+    }
+
+    open TOUT, ">$txt_file" or die("cannot open >$txt_file:$!");
+    print TOUT "\n";
+    print TOUT "=============================================================\n";
+    print TOUT "                   sowhat results\n";
+    print TOUT "=============================================================\n\n";
+    print TOUT "Program was called as follows:\n$0 \\\n";
+    foreach my $arg (@{$rh_opts->{'orig_options'}}) {
+        print TOUT "  $arg \\\n";
+    }
+    print TOUT "\n  \$SEQGEN variable set to $SEQGEN\n";
+    if ($USEGARLI)  {
+        print TOUT "  \$GARLI variable set to $GARLI\n";
+        print TOUT "  garli was version $version\n";
+    } else {
+        print TOUT "  \$RAX variable set to $RAX\n";
+        print TOUT "  RAxML was version $version\n";
+    }
+    if ($rh_opts->{'rerun'}) {
+        print TOUT "   Multiple test statistics calculated\n";
+        print TOUT "   Distribution of test statistics printed to $DIR/sowhat.distribution\n";
+        print TOUT "   Mean value used for calculating p-value\n";
+    }
+    print TOUT "\nDistributions and frequencies printed to:\n $fd_file\n";            
+    for(my $i=0; $i < (@{$ra_output}); $i++) {
+        my $ra_out = $ra_output->[$i];
+        print TOUT "\n$ra_out->{'name'}\n";
+        my $ra_val = $ra_output->[$i]->{'value'};
+        for(my $j=0; $j < (@{$ra_val}); $j++) {
+            my $ra_o = $ra_val->[$j];
+            print TOUT "    $ra_o->{'description'}  =  $ra_o->{'value'}\n";
+        }
+    }
+    close TOUT;
+
+    if($ratio <= 0.01) {
+        print "o";
+    } else {
+        print ".";
+    }
+
+    open OUT, ">$fd_file" or die("cannot open >$fd_file:$!");
+    print OUT "Null Distribution:\n";
+    foreach my $val (@{$ra_d}) {
+       print OUT "$val\n";
+    }
+    print OUT "\nTest Statistic(s):\n" if($ra_delta_dist);
+    foreach my $val (@{$ra_delta_dist}) {
+       print OUT "$val\n";
+    }
+    close OUT;
+}
+
+# IN:  system command (e.g., ls -l)
+# OUT: none
+# JOB: runs a commond, prints command if in verbose mode, or if command fails
+sub safe_system {
+    my $cmd = shift;
+    #my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+    #printf("%02d:%02d:%02d\n", $hour, $min, $sec);
+    #print "Cmd-Triggert: $cmd\n";
+    warn "\$cmd = $cmd\n" unless ($QUIET);
+    my $error = system $cmd;
+    warn "system call failed:\n$cmd\nerror code=$?" if ($error != 0);
+}
+
+sub usage {
+    die "usage: $0
+    --constraint=NEWICK_CONSTRAINT_TREE
+    --aln=PHYLIP_ALIGNMENT
+    --name=NAME_FOR_REPORT
+    --dir=DIR
+    --raxml_model=MODEL_FOR_RAXML
+
+    [--help for additional options]\n";
+}
+
+__END__
+
+=head1 NAME
+
+B<sowhat> - The SOWH Test: A Paramentric Test of Topologies
+
+=head1 AUTHOR
+
+Samuel H. Church <church@g.harvard.edu>, Joseph F. Ryan <joseph.ryan@whitney.ufl.edu>, Casey W. Dunn <casey_dunn@brown.edu>
+
+=head1 SYNOPSIS 
+ sowhat --constraint=NEWICK_CONSTRAINT_TREE --aln=PHYLIP_ALIGNMENT --name=NAME_FOR_REPORT --dir=DIR [--debug] 
+ [--garli=GARLI_BINARY_OR_PATH_PLUS_OPTIONS] [--garli_conf=PATH_TO_GARLI_CONF_FILE] [--help] [--initial] [--json] 
+ [--max] [--raxml_model=MODEL_FOR_RAXML] [--nogaps] [--partition=PARTITION_FILE] [--pb=PB_BINARY_OR_PATH_PLUS_OPTIONS]
+ [--pb_burn=BURNIN_TO_USE_FOR_PB_TREE_SIMULATIONS] [--plot] [--ppred=PPRED_BINARY_OR_PATH_PLUS_OPTIONS] 
+ [--rax=RAXML_BINARY_OR_PATH_PLUS_OPTIONS] [--reps=NUMBER_OF_REPLICATES] [--resolved] [--rerun] [--restart]
+ [--runs=NUMBER_OF_TESTS_TO_RUN] [--seqgen=SEQGEN_BINARY_OR_PATH_PLUS_OPTIONS] [--treetwo=NEWICK_ALTERNATIVE_TO_CONST_TREE]
+ [--usepb] [--usegarli] [--usegentree=NEWICK_TREE_FOR_SIMULATING_DATA] [--version]\n";
+
+=head1 constraint
+
+=over 2
+
+This file specifies a constraint tree, which is the null hypothesis tested using a parametric bootstrap. This tree must be in newick format.
+
+=back
+
+=head1 aln
+
+=over 2
+
+This file is the alignment which is used as the emprirical data in the test. This alignment file must be in phylip format.
+
+=back
+
+=head1 name
+
+=over 2
+
+This is the name of the output files.
+
+=back
+
+=head1 dir
+
+=over 2
+
+This is the directory where ouput files will be sent.
+
+=back
+
+=head1 OPTIONS
+
+=over 2
+
+=item B<--rax>
+
+<default: raxmlHPC>
+This allows the user to specify the RAxML binary to be used in the analysis. It is useful if a user would like to specify the full path to a RAxML binary, but its purpose is mostly to allow users to run a multi-threaded or MPI version of the program, and or pass additional parameters to RAxML. Some examples would be:
+
+    --rax='raxmlHPC-PTHREADS-SSE3 -T 8'
+
+    --rax='mpirun -n 8 raxmlHPC-MPI'
+
+=head1 raxml_model
+
+This is the model which will be used in likelihood inference and data simulation, unless additional options are specified (ie --max --usepb). Use --raxml_model=available for full list of model options.
+
+=item B<--seqgen>
+
+<default: seq-gen>
+This allows the user to specify the SeqGen binary or path to the binary to be used in the analysis. It could be useful to pass additional parameters to seq-gen.
+
+=item B<--usepb>
+
+Use PhyloBayes (pb and ppred programs) to calculate null distribution parameters and generate data sets instead of using RAxML and Seq-Gen. Only works for amino acid and nucleotide datasets (not character data)
+
+=item B<--pb>
+
+<default: pb>
+This allows the user to specify the pb binary or path to the binary to be used in the analysis. It could be useful to pass additional parameters to pb (only useful with --usepb)
+
+=item B<--usegarli>
+
+Use GARLI instead of RAxML for nucleotide data. Must also include --garli_conf= .
+
+=item B<--garli>
+
+<default: garli>
+This allows the user to specify the garli binary or path to the binary to be used in the analysis. It could be useful to pass additional parameters to garli.
+
+=item B<--garli_conf=PATH_TO_GARLI_CONF_FILE>
+If using garli, a garli conf file must be supplied (see examples directory of sowhat distribution for example)
+
+=item B<--ppred>
+
+<default: ppred>
+This allows the user to specify the ppred binary or path to the binary to be used in the analysis. It could be useful to pass additional parameters to ppred (only useful with --usepb)
+
+=item B<--pb_burn>
+
+<default: 10>
+This allows the user to specify the burn-in value used for the phylobayes analysis (only useful with --usepb)
+
+=item B<--reps>
+
+<default: 1000>
+This is the maximum number of datasets which will be generated according to the estimated parameters.
+
+=item B<--runs>
+<default: 1>
+This is the number of runs - multiple separate SOWH tests may be simultaneously performed to assess results.
+
+=item B<--partition>
+
+This can be a partition file which applies to the dataset. It must be in a format recognizable by RAxML version 7.7.0.
+
+=item B<--rerun>
+
+This option will adjust the SOWH test to account for variability in the maximum likelihood search. In this option, the test statistic and parameters will be recalculated for each alignment generated. The mean test statistic will then be tested against the null distribution using a one tailed test, similar to the SOWH test.
+
+=item B<--restart>
+
+This option allows the user to restart a test without reconstructing the null distribution. The final two iterations are removed to eliminate any trees not fully completed. The statistics will be parsed again from the output files of RAxML and the report will be calculated at each iteration.
+
+=item B<--nogaps>
+
+By default sowhat will propogate the undetermined sites in the original dataset into all simulated datasets before they are evaluted.  Use this option to turn this behavior off. Simulated datasets will have no gaps.
+
+=item B<--initial>
+
+This will only run the first two trees, which are a constrained and unconstrained search of the provided dataset.
+
+=item B<--json>
+
+The results will be printed to sohwat.results.json file as well as to the sowhat.results.txt file. The JSON perl module is required for this option to run.
+
+=item B<--usegentree>
+
+By default SOWHAT will use the zero-costrained tree as the generating topology for simulated data. This option allows the user to provide some other topology.
+
+=item B<--usegenmodel>
+
+This option allows a user to specify a model for simulation of data. Example model files are included in the examples directory.
+
+=item B<--plot>
+
+This option allows the user to plot a graph in .eps format of the mean of the null distribution, as well as a plot showing the ratio of null distribution means from one sample step to the next. If multiple runs are selected, all means will be plotted in a file names allmeans.eps.
+
+=item B<--treetwo>
+
+This allows a user to specify a second tree against which to compare the null hypothesis. The two trees (constraint and treetwo) will be compared. The lower likelihood tree will be used as the constraining hypothesis for parameter estimation and simulation.
+
+=item B<--resolved>
+
+By default SOWHAT will use the zero-constrained tree as the generating topology. This option causes data to be simulated instead on a fully resolved tree which conforms to the constraint tree (the alternative hypothesis to be tested).
+
+=item B<--max>
+
+By default SOWHAT performs likelihood searches and data simulation under the same user specified model. This option causes data to be simulated under a model which maximizes the number of free parameters.
+
+=item B<--debug>
+
+do not redirect standard out and standard error. RAxML in particular will produce lots of output with this option. Can be useful for debugging problems like, for example, bad tree format.
+
+=item B<--help>
+
+Print this manual
+
+=item B<--version>
+
+Print the version. Overrides all other options.
+
+=back
+
+=head1 DESCRIPTION
+
+This program automates the steps required for the SOWH test (as described by Goldman et. al., 2000). It depends on the freely available seq-gen and RAxML software packages. It works on amino acid, nucleotide, and binary character state datasets. Partitions can be specified.
+
+The program calculates the difference between two likelihood scores.
+
+This program then generates new alignments based on a hypothesized topology and parameters from the null hypothesis, including branch lengths as well as the frequencies, transtition rates, and alpha values (if available, partitions are taken into account). These datasets are generated using seq-gen, written by Andrew Rambaut and Nick C. Grassly. It is freely available under BSD license, see: 
+http://tree.bio.ed.ac.uk/software/seqgen/
+
+The program then calculates the likelihood scores of each of these alignments both with and without the topology constrained according to the hypothesis. The differences between these scores become the distributions against which the test value will be evaluated.
+
++The p-value of the test statistic is calculated using R, using the pnorm function. Information about the test is printed to the file sowhat.results.txt in the directory specified by the user.
+
+R is freely available under the GPL-2 license.
+
+Nick Goldman, Jon P. Anderson, and Allen G. Rodrigo
+Likelihood-Based Tests of Topologies in Phylogenetics
+Syst Biol (2000) 49 (4): 652-670 doi:10.1080/106351500750049752
+
+=back
+
+=head1 BUGS
+
+Please report them to any or all of the authors.
+
+=head1 COPYRIGHT
+
+Copyright (C) 2012,2013 Samuel H. Church, Joseph F. Ryan, Casey W. Dunn
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut

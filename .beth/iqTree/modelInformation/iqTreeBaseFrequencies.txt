@@ -1,0 +1,3 @@
++F=Empirical base frequencies. This is the default if the model has unequal base freq.
++FQ=Equal base frequencies.
++FO=Optimized base frequencies by maximum-likelihood.

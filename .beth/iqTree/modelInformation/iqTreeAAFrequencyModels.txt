@@ -1,0 +1,3 @@
++F=empirical AA frequencies from the data.
++FO=ML optimized AA frequencies from the data.
++FQ=Equal AA frequencies.
