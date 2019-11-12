@@ -1,0 +1,59 @@
+IQ-TREE multicore version 1.6.1 for Linux 64-bit built Dec 26 2017
+Developed by Bui Quang Minh, Nguyen Lam Tung, Olga Chernomor,
+Heiko Schmidt, Dominik Schrempf, Michael Woodhams.
+
+Host:    stuart (AVX, 7 GB RAM)
+Command: /home/dennis/NetBeansProjects/Beth/dist/.beth/iqTree/iqtreeLINUX/iqtree -s /home/dennis/NetBeansProjects/Beth/sowhat/examples/nt.phy -nt AUTO -m GTR+I+FO -redo
+Seed:    531424 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Wed Sep 19 14:50:23 2018
+Kernel:  AVX - auto-detect threads (4 CPU cores detected)
+
+Reading alignment file /home/dennis/NetBeansProjects/Beth/sowhat/examples/nt.phy ... Phylip format detected
+Alignment most likely contains DNA/RNA sequences
+Alignment has 5 sequences with 90 columns, 69 distinct patterns
+49 parsimony-informative, 29 singleton sites, 12 constant sites
+        Gap/Ambiguity  Composition  p-value
+   1  Taxon1    0.00%    failed      2.27%
+   2  Taxon2    0.00%    passed     78.33%
+   3  Taxon3    4.44%    passed     63.76%
+   4  Taxon4    0.00%    passed     60.55%
+   5  Taxon5    0.00%    passed     48.19%
+****  TOTAL     0.89%  1 sequences failed composition chi2 test (p-value<5%; df=3)
+
+Create initial parsimony tree by phylogenetic likelihood library (PLL)... 0.011 seconds
+
+NOTE: 0 MB RAM (0 GB) is required!
+Measuring multi-threading efficiency up to 4 CPU cores
+Increase to 10 rounds for branch lengths
+13188 trees examined
+Threads: 1 / Time: 4.000 sec / Speedup: 1.000 / Efficiency: 100% / LogL: -544
+
+******************************************************
+CHECKPOINT: Resuming analysis from /home/dennis/NetBeansProjects/Beth/sowhat/examples/nt.phy.ckp.gz
+
+IQ-TREE multicore version 1.6.1 for Linux 64-bit built Dec 26 2017
+Developed by Bui Quang Minh, Nguyen Lam Tung, Olga Chernomor,
+Heiko Schmidt, Dominik Schrempf, Michael Woodhams.
+
+Host:    stuart (AVX, 7 GB RAM)
+Command: /home/dennis/NetBeansProjects/Beth/dist/.beth/iqTree/iqtreeLINUX/iqtree -s /home/dennis/NetBeansProjects/Beth/sowhat/examples/nt.phy -nt AUTO -m WAG+FO
+Seed:    836840 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Sun Nov 25 13:43:31 2018
+Kernel:  AVX - auto-detect threads (4 CPU cores detected)
+
+WARNING: Command-line argument `WAG+FO` differs from checkpoint `GTR+I+FO`
+WARNING: Command-line differs from checkpoint!
+Reading alignment file /home/dennis/NetBeansProjects/Beth/sowhat/examples/nt.phy ... Phylip format detected
+Alignment most likely contains DNA/RNA sequences
+Alignment has 5 sequences with 90 columns, 69 distinct patterns
+49 parsimony-informative, 29 singleton sites, 12 constant sites
+        Gap/Ambiguity  Composition  p-value
+   1  Taxon1    0.00%    failed      2.27%
+   2  Taxon2    0.00%    passed     78.33%
+   3  Taxon3    4.44%    passed     63.76%
+   4  Taxon4    0.00%    passed     60.55%
+   5  Taxon5    0.00%    passed     48.19%
+****  TOTAL     0.89%  1 sequences failed composition chi2 test (p-value<5%; df=3)
+
+CHECKPOINT: Initial tree restored
+ERROR: Invalid model name WAG

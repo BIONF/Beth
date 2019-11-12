@@ -1,0 +1,120 @@
+IQ-TREE 1.6.1 built Dec 26 2017
+
+Input file name: /home/dennis/NetBeansProjects/Beth/test_files/example.phy
+Type of analysis: tree reconstruction
+Random seed number: 346725
+
+REFERENCES
+----------
+
+To cite IQ-TREE please use:
+
+Lam-Tung Nguyen, Heiko A. Schmidt, Arndt von Haeseler, and Bui Quang Minh
+(2015) IQ-TREE: A fast and effective stochastic algorithm for estimating
+maximum likelihood phylogenies. Mol Biol Evol, 32:268-274.
+https://doi.org/10.1093/molbev/msu300
+
+SEQUENCE ALIGNMENT
+------------------
+
+Input data: 17 sequences with 1998 nucleotide sites
+Number of constant sites: 686 (= 34.3343% of all sites)
+Number of invariant (constant or ambiguous constant) sites: 686 (= 34.3343% of all sites)
+Number of parsimony informative sites: 1009
+Number of distinct site patterns: 1152
+
+SUBSTITUTION PROCESS
+--------------------
+
+Model of substitution: GTR+FO+I
+
+Rate parameter R:
+
+  A-C: 3.5340
+  A-G: 5.6336
+  A-T: 3.5469
+  C-G: 0.4672
+  C-T: 8.9261
+  G-T: 1.0000
+
+State frequencies: (estimated with maximum likelihood)
+
+  pi(A) = 0.3333
+  pi(C) = 0.2471
+  pi(G) = 0.1787
+  pi(T) = 0.2409
+
+Rate matrix Q:
+
+  A   -0.9077    0.2898    0.3342    0.2836
+  C    0.3909    -1.132   0.02772    0.7138
+  G    0.6232   0.03832   -0.7415   0.07996
+  T    0.3923    0.7321   0.05932    -1.184
+
+Model of rate heterogeneity: Invar
+Proportion of invariable sites: 0.3327
+
+ Category  Relative_rate  Proportion
+  0         0              0.3327
+  1         1.499          0.6673
+
+MAXIMUM LIKELIHOOD TREE
+-----------------------
+
+Log-likelihood of the tree: -21607.0284 (s.e. 341.6102)
+Unconstrained log-likelihood (without tree): -11402.5956
+Number of free parameters (#branches + #model parameters): 40
+Akaike information criterion (AIC) score: 43294.0567
+Corrected Akaike information criterion (AICc) score: 43295.7328
+Bayesian information criterion (BIC) score: 43518.0528
+
+Total tree length (sum of branch lengths): 3.1795
+Sum of internal branch lengths: 0.7546 (23.7335% of tree length)
+
+NOTE: Tree is UNROOTED although outgroup taxon 'LngfishAu' is drawn at root
+
++--------------LngfishAu
+|
+|       +--------------LngfishSA
++-------|
+|       +--------------LngfishAf
+|
+|      +-------------------Frog
++------|
+       |                    +-----------------Turtle
+       |                 +--|
+       |                 |  |     +----------------------Crocodile
+       |                 |  +-----|
+       |                 |        +------------------Bird
+       |              +--|
+       |              |  +-------------------------Sphenodon
+       |         +----|
+       |         |    +----------------------------Lizard
+       +---------|
+                 |                +---------------Human
+                 |             +--|
+                 |             |  |  +--------Seal
+                 |             |  +--|
+                 |             |     |  +-------Cow
+                 |             |     +--|
+                 |             |        +--------Whale
+                 |         +---|
+                 |         |   |         +-----Mouse
+                 |         |   +---------|
+                 |         |             +-------Rat
+                 +---------|
+                           |   +---------------Platypus
+                           +---|
+                               +------------Opossum
+
+Tree in newick format:
+
+(LngfishAu:0.1342000565,(LngfishSA:0.1388380042,LngfishAf:0.1378477898):0.0794651042,(Frog:0.1843224001,((((Turtle:0.1638586107,(Crocodile:0.2090184601,Bird:0.1743285946):0.0610698812):0.0260328250,Sphenodon:0.2373567848):0.0221693860,Lizard:0.2583102891):0.0517258390,(((Human:0.1493080247,(Seal:0.0799862114,(Cow:0.0718205967,Whale:0.0867996646):0.0330458478):0.0224282746):0.0286824727,(Mouse:0.0553701781,Rat:0.0757666147):0.0907518956):0.0412550022,(Platypus:0.1469298981,Opossum:0.1208656242):0.0405828577):0.0966336096):0.0946563854):0.0661181702);
+
+TIME STAMP
+----------
+
+Date and time: Thu Sep 13 11:09:06 2018
+Total CPU time used: 31.624 seconds (0h:0m:31s)
+Total wall-clock time used: 13.3322 seconds (0h:0m:13s)
+

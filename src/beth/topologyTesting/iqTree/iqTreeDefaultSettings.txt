@@ -1,0 +1,7 @@
+numCores=AUTO
+nucSubModel=GTR
+nucRateModel=+I
+nucFreqModel=+FO
+aaSubModel=WAG
+aaFreqModel=+FO
+

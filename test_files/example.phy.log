@@ -1,0 +1,36 @@
+IQ-TREE multicore version 1.6.1 for Linux 64-bit built Dec 26 2017
+Developed by Bui Quang Minh, Nguyen Lam Tung, Olga Chernomor,
+Heiko Schmidt, Dominik Schrempf, Michael Woodhams.
+
+Host:    stuart (AVX, 7 GB RAM)
+Command: /home/dennis/NetBeansProjects/Beth/dist/.beth/iqTree/iqtreeLINUX/iqtree -s /home/dennis/NetBeansProjects/Beth/test_files/example.phy -nt AUTO -m WAG+FO -redo
+Seed:    582507 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Sun Nov 25 13:42:45 2018
+Kernel:  AVX - auto-detect threads (4 CPU cores detected)
+
+Reading alignment file /home/dennis/NetBeansProjects/Beth/test_files/example.phy ... Phylip format detected
+Alignment most likely contains DNA/RNA sequences
+Alignment has 17 sequences with 1998 columns, 1152 distinct patterns
+1009 parsimony-informative, 303 singleton sites, 686 constant sites
+           Gap/Ambiguity  Composition  p-value
+   1  LngfishAu    0.15%    passed      6.20%
+   2  LngfishSA    0.00%    failed      0.62%
+   3  LngfishAf    0.05%    failed      1.60%
+   4  Frog         0.05%    passed     58.01%
+   5  Turtle       0.15%    passed     44.25%
+   6  Sphenodon    0.10%    passed     59.78%
+   7  Lizard       0.90%    passed     38.67%
+   8  Crocodile    0.35%    failed      2.51%
+   9  Bird         0.00%    failed      0.00%
+  10  Human        0.00%    failed      0.85%
+  11  Seal         0.00%    passed     68.93%
+  12  Cow          0.00%    passed     59.11%
+  13  Whale        0.00%    passed     97.83%
+  14  Mouse        0.05%    failed      1.43%
+  15  Rat          0.00%    passed     39.69%
+  16  Platypus     0.00%    failed      3.46%
+  17  Opossum      0.00%    failed      0.01%
+****  TOTAL        0.11%  8 sequences failed composition chi2 test (p-value<5%; df=3)
+
+Create initial parsimony tree by phylogenetic likelihood library (PLL)... 0.008 seconds
+ERROR: Invalid model name WAG

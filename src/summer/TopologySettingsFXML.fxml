@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.RadioButton?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.AnchorPane?>
+
+<AnchorPane id="AnchorPane" prefHeight="400.0" prefWidth="1086.0" xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1" fx:controller="summer.TopologySettingsFXMLController">
+  <children>
+    <Button fx:id="acceptSettingsButton" mnemonicParsing="false" onAction="#handleAcceptSettingsButton" prefHeight="31.0" prefWidth="116.0" text="Accept" AnchorPane.bottomAnchor="14.0" AnchorPane.rightAnchor="14.0" />
+    <Button fx:id="backToDefaultButton" layoutX="775.0" mnemonicParsing="false" onAction="#handleBackToDefaultButtonAction" prefHeight="31.0" prefWidth="163.0" text="Restore Defaults" AnchorPane.bottomAnchor="14.0" />
+    <TabPane fx:id="modelSelectionTabPane" prefHeight="332.0" prefWidth="909.0" tabClosingPolicy="UNAVAILABLE" AnchorPane.leftAnchor="12.0" AnchorPane.rightAnchor="12.0" AnchorPane.topAnchor="14.0">
+      <tabs>
+        <Tab fx:id="nucleotideModelTab" text="Nucleotide  Models">
+          <content>
+            <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+              <children>
+                <Label layoutX="14.0" layoutY="14.0" prefHeight="21.0" prefWidth="142.0" text="Substitution Model" />
+                <Label layoutX="14.0" layoutY="57.0" prefHeight="21.0" prefWidth="155.0" text="Base Frequency Model" />
+                <Label layoutX="14.0" layoutY="100.0" text="Rate Heterogenity Model" />
+                <ComboBox fx:id="nucSubModelComboBox" layoutX="212.0" layoutY="9.0" prefWidth="150.0" />
+                <ComboBox fx:id="baseFreqComboBox" layoutX="212.0" layoutY="52.0" prefWidth="150.0" />
+                <ComboBox fx:id="rateModelComboBox" layoutX="212.0" layoutY="95.0" prefWidth="150.0" />
+                <Label fx:id="nucSubModelExplanationLabel" layoutY="14.0" prefHeight="21.0" prefWidth="682.0" AnchorPane.rightAnchor="4.0" />
+                <Label fx:id="baseFreqExplanationLabel" layoutY="57.0" prefHeight="21.0" prefWidth="687.0" AnchorPane.rightAnchor="4.0" />
+                <Label fx:id="rateModelExplanationLabel" layoutY="100.0" prefHeight="21.0" prefWidth="688.0" AnchorPane.rightAnchor="4.0" />
+              </children>
+            </AnchorPane>
+          </content>
+        </Tab>
+        <Tab fx:id="aaModelTab" text="Amino Acid Models">
+          <content>
+            <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+              <children>
+                <Label layoutY="14.0" prefHeight="21.0" prefWidth="163.0" text="Substitution Model" AnchorPane.leftAnchor="14.0" />
+                <ComboBox fx:id="aaSubModelComboBox" layoutX="205.0" layoutY="10.0" prefWidth="150.0" />
+                <ComboBox fx:id="aaFreqComboBox" layoutX="205.0" layoutY="44.0" prefHeight="26.0" prefWidth="150.0" />
+                <Label layoutY="49.0" prefHeight="16.0" prefWidth="140.0" text="AA Frequency Model" AnchorPane.leftAnchor="14.0" />
+                <Label fx:id="aaSubModelExplanationLabel" layoutY="14.0" prefHeight="21.0" prefWidth="693.0" AnchorPane.rightAnchor="4.0" />
+                <Label fx:id="aaFreqExplanationLabel" layoutY="49.0" prefHeight="21.0" prefWidth="691.0" AnchorPane.rightAnchor="4.0" />
+              </children>
+            </AnchorPane>
+          </content>
+        </Tab>
+        <Tab text="Layouting Options">
+          <content>
+            <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+              <children>
+                <TextField fx:id="minBranchLengthTextField" layoutX="289.0" layoutY="14.0" prefHeight="31.0" prefWidth="150.0" />
+                <Label layoutX="24.0" layoutY="19.0" prefHeight="21.0" prefWidth="174.0" text="Minimum branch length" />
+                <Label layoutX="24.0" layoutY="78.0" prefHeight="21.0" prefWidth="254.0" text="Branch length normalization method" />
+                <ComboBox fx:id="branchLengthNormComboBox" layoutX="289.0" layoutY="73.0" prefWidth="150.0" />
+                        <Label fx:id="branchLengthExplanationLabel" layoutX="468.0" layoutY="78.0" prefHeight="21.0" prefWidth="265.0" text="EXPLAINNNN!" />
+              </children>
+            </AnchorPane>
+          </content>
+        </Tab>
+      </tabs>
+    </TabPane>
+    <Button fx:id="cancelButton" layoutX="680.0" layoutY="355.0" mnemonicParsing="false" onAction="#handleCancelButtonAction" prefHeight="31.0" prefWidth="79.0" text="Cancel" />
+  </children>
+</AnchorPane>

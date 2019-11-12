@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Menu?>
+<?import javafx.scene.control.MenuBar?>
+<?import javafx.scene.control.MenuItem?>
+<?import javafx.scene.control.ToolBar?>
+<?import javafx.scene.image.Image?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.AnchorPane?>
+<?import javafx.scene.layout.Pane?>
+
+<AnchorPane id="AnchorPane" prefHeight="650.0" prefWidth="798.0" xmlns="http://javafx.com/javafx/8.0.111" xmlns:fx="http://javafx.com/fxml/1" fx:controller="summer.MainWindowController">
+    <children>
+      <ToolBar layoutX="14.0" layoutY="559.0" prefHeight="77.0" prefWidth="553.0" AnchorPane.bottomAnchor="0.0">
+        <items>
+            <Button id="undoButton" fx:id="undoButton" mnemonicParsing="false" onAction="#handleUndoButtonAction" prefHeight="55.0" prefWidth="55.0">
+                <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                        <image>
+                            <Image url="summer/icons/undo.png" />
+                        </image>
+                    </ImageView>
+                </graphic>
+            </Button>
+            <Button fx:id="redoButton" mnemonicParsing="false" onAction="#handleRedoButtonAction" prefHeight="55.0" prefWidth="55.0">
+                <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                        <image>
+                            <Image url="summer/icons/redo.png" />
+                        </image>
+                    </ImageView>
+                </graphic>
+            </Button>    
+            <Button fx:id="zoomInButton" mnemonicParsing="false" onAction="#handleZoomInButtonAction" prefHeight="55.0" prefWidth="55.0">
+                <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                        <image>
+                            <Image url="summer/icons/zoomIn.png" />
+                        </image>
+                    </ImageView>
+                </graphic>
+            </Button>
+            <Button fx:id="zoomOutButton" mnemonicParsing="false" onAction="#handleZoomOutButtonAction" prefHeight="55.0" prefWidth="55.0">
+                <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                        <image>
+                            <Image url="summer/icons/zoomOut.png" />
+                        </image>
+                    </ImageView>
+                </graphic>
+            </Button>
+        </items>
+      </ToolBar>
+      <AnchorPane layoutX="18.0" layoutY="52.0">
+         <children>
+            <Pane id="treePane" fx:id="treePane" prefHeight="499.0" prefWidth="755.0" />
+              <Label fx:id="progressLabel" minHeight="16" minWidth="69" prefHeight="499.0" prefWidth="755.0" />
+         </children>
+      </AnchorPane>
+      <MenuBar layoutX="11.0" layoutY="14.0" prefHeight="32.0" prefWidth="776.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+        <menus>
+          <Menu mnemonicParsing="false" text="File">
+            <items>
+              <MenuItem id="openNewickButton" fx:id="openNewickButton" mnemonicParsing="false" onAction="#handleOpenNewickButtonAction" text="Open Newick" />
+                  <MenuItem id="saveNewickButton" fx:id="saveNewickButton" mnemonicParsing="false" onAction="#handleSaveNewickButtonAction" text="Save Newick" />
+                  <MenuItem fx:id="openAlignmentButton" mnemonicParsing="false" onAction="#handleOpenAlignmentButtonAction" text="Open Alignment" />
+            </items>
+          </Menu>
+          <Menu mnemonicParsing="false" text="Snapshots">
+            <items>
+              <MenuItem id="takeSnapshotButton" fx:id="takeSnapshotButton" mnemonicParsing="false" onAction="#handleTakeSnapshotButtonEvent" text="Take Snapshot" />
+                  <MenuItem id="viewSnapshotsButton" fx:id="viewSnapshotsButton" mnemonicParsing="false" onAction="#handleViewSnapshotsButtonEvent" text="View Snapshots" />
+            </items>
+          </Menu>
+        </menus>
+      </MenuBar>
+    </children>
+</AnchorPane>

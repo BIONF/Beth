@@ -1,0 +1,4 @@
+raxml_model=GTRGAMMA
+name=compute
+rax=raxmlHPC
+seqgen=seq-gen

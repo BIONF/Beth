@@ -1,0 +1,2 @@
+minBranchLength=25.
+normalization=Log Normalization

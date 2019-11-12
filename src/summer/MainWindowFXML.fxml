@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.image.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.CheckMenuItem?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.Menu?>
+<?import javafx.scene.control.MenuBar?>
+<?import javafx.scene.control.MenuItem?>
+<?import javafx.scene.control.RadioButton?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.ToolBar?>
+<?import javafx.scene.image.Image?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.AnchorPane?>
+<?import javafx.scene.layout.BorderPane?>
+
+<AnchorPane id="AnchorPane" prefHeight="650.0" prefWidth="798.0" xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1" fx:controller="summer.MainWindowController">
+  <children>
+    <AnchorPane AnchorPane.bottomAnchor="5.0" AnchorPane.leftAnchor="5.0" AnchorPane.rightAnchor="5.0" AnchorPane.topAnchor="52.0">
+      <children>
+        <BorderPane prefHeight="499.0" prefWidth="44.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+          <bottom>
+            <ToolBar prefHeight="77.0" prefWidth="553.0" BorderPane.alignment="CENTER">
+              <items>
+                <Button fx:id="undoButton" mnemonicParsing="false" onAction="#handleUndoButtonAction" prefHeight="55.0" prefWidth="55.0">
+                  <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                      <image>
+                        <Image url="file:src/summer/icons/undo.png" />
+                      </image>
+                    </ImageView>
+                  </graphic>
+                </Button>
+                <Button fx:id="redoButton" mnemonicParsing="false" onAction="#handleRedoButtonAction" prefHeight="55.0" prefWidth="55.0">
+                  <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                      <image>
+                        <Image url="file:src/summer/icons/redo.png" />
+                      </image>
+                    </ImageView>
+                  </graphic>
+                </Button>
+                <Button fx:id="zoomInButton" mnemonicParsing="false" onAction="#handleZoomInButtonAction" prefHeight="55.0" prefWidth="55.0">
+                  <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                      <image>
+                        <Image url="file:src/summer/icons/zoomIn.png" />
+                      </image>
+                    </ImageView>
+                  </graphic>
+                </Button>
+                <Button fx:id="zoomOutButton" mnemonicParsing="false" onAction="#handleZoomOutButtonAction" prefHeight="55.0" prefWidth="55.0">
+                  <graphic>
+                    <ImageView fitHeight="40.0" fitWidth="40.0">
+                      <image>
+                        <Image url="file:.beth/Layout/icons/zoomOut.png" />
+                      </image>
+                    </ImageView>
+                  </graphic>
+                </Button>
+                <Button fx:id="showOptionsButton" mnemonicParsing="false" onAction="#handleShowOptions" prefHeight="50.0" prefWidth="132.0" text="Show Options" />
+              </items>
+            </ToolBar>
+          </bottom>
+          <center>
+            <ScrollPane fx:id="scrollPane" prefHeight="499.0" prefWidth="284.0" BorderPane.alignment="CENTER">
+              <content>
+                <Label fx:id="progressLabel" minHeight="16.0" minWidth="69.0" prefHeight="499.0" prefWidth="728.0" />
+              </content>
+            </ScrollPane>
+          </center>
+          <right>
+            <TabPane id="optionsPane" fx:id="sidePaneRight" prefHeight="499.0" prefWidth="301.0" tabClosingPolicy="UNAVAILABLE" BorderPane.alignment="CENTER">
+              <tabs>
+                <Tab text="Run-Tests">
+                  <content>
+                    <AnchorPane id="Content" minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                 <children>
+                                    <Label layoutX="14.0" layoutY="14.0" prefHeight="32.0" prefWidth="283.0" text="Choose snapshots for testing" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="14.0" AnchorPane.topAnchor="14.0" />
+                                    <ListView fx:id="snapshotListView" layoutX="14.0" layoutY="46.0" prefHeight="200.0" prefWidth="281.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="14.0" AnchorPane.topAnchor="46.0" />
+                                    <Button fx:id="startTestsButton" layoutX="14.0" layoutY="418.0" mnemonicParsing="false" onAction="#handleStartTestsButton" prefHeight="51.0" prefWidth="273.0" text="Test selected snapshots" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="14.0" />
+                                    <TextField fx:id="alignmentPathTextField" layoutX="14.0" layoutY="276.0" prefHeight="31.0" prefWidth="273.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="14.0" />
+                                    <Label layoutX="16.0" layoutY="255.0" prefHeight="21.0" prefWidth="270.0" text="Alignment Path" />
+                                    <Button fx:id="changeAlignmentPathButton" layoutX="14.0" layoutY="318.0" mnemonicParsing="false" onAction="#handleChangeAlignmentPathButton" prefHeight="31.0" prefWidth="272.0" text="Change Alignment Path" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="14.0" />
+                                    <Label layoutX="16.0" layoutY="357.0" text="Select Tests" />
+                                    <CheckBox fx:id="selectIQTreeCheckBox" layoutX="16.0" layoutY="374.0" mnemonicParsing="false" text="IQTree" />
+                                    <CheckBox fx:id="selectSOWHCheckBox" layoutX="151.0" layoutY="374.0" mnemonicParsing="false" text="SOWH" />
+                                 </children></AnchorPane>
+                  </content>
+                </Tab>
+                <Tab text="Test-Options">
+                  <content>
+                    <TabPane fx:id="testOptionPane" prefHeight="200.0" prefWidth="200.0" tabClosingPolicy="UNAVAILABLE">
+                      <tabs>
+                        <Tab text="SOWH">
+                          <content>
+                            <AnchorPane id="Content" fx:id="tree2IsMl" minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                              <children>
+                                <Label layoutX="16.0" layoutY="16.0" text="Test-Name:" />
+                                <TextField fx:id="sowhTestNameField" layoutX="113.0" layoutY="11.0" prefWidth="174.0" />
+                                <Label layoutX="16.0" layoutY="47.0" text="Model:" />
+                                <ComboBox fx:id="raxmlModelBox" layoutX="113.0" layoutY="42.0" prefWidth="174.0" />
+                                                <Label layoutX="14.0" layoutY="74.0" text="H0-Tree-Path:" />
+                                                <Label fx:id="h0TreeLabel" layoutX="114.0" layoutY="74.0" prefHeight="15.0" prefWidth="173.0" text="- " />
+                                                <Label layoutX="14.0" layoutY="99.0" text="raxML-Module:" />
+                                                <ComboBox fx:id="raxmlModulesBox" layoutX="114.0" layoutY="94.0" prefHeight="27.0" prefWidth="173.0" />
+                                                <Label layoutX="14.0" layoutY="130.0" text="Seq-Module:" />
+                                                <ComboBox fx:id="seqModulesBox" layoutX="114.0" layoutY="125.0" prefHeight="25.0" prefWidth="173.0" />
+                                                <RadioButton fx:id="useTree2RadioButton" layoutX="19.0" layoutY="224.0" mnemonicParsing="false" text="Use H0-Tree" />
+                                <RadioButton fx:id="noGapsButton" contentDisplay="LEFT" layoutX="17.0" layoutY="255.0" mnemonicParsing="false" text="No Gaps" />
+                                <RadioButton fx:id="resolvedButton" contentDisplay="LEFT" layoutX="17.0" layoutY="283.0" mnemonicParsing="false" text="Resolved" />
+                                <RadioButton fx:id="rerunButton" contentDisplay="LEFT" layoutX="17.0" layoutY="313.0" mnemonicParsing="false" text="Rerun" />
+                                <RadioButton fx:id="maxParameterButton" contentDisplay="LEFT" layoutX="18.0" layoutY="347.0" mnemonicParsing="false" text="Max Parameter" />
+                                <RadioButton fx:id="useRestartButton" contentDisplay="LEFT" layoutX="18.0" layoutY="376.0" mnemonicParsing="false" text="Restart" />
+                                <Button fx:id="saveSOWHSettings" layoutX="14.0" layoutY="409.0" mnemonicParsing="false" onAction="#handleAcceptSettingsButton" text="Accept" />
+                                                <Button fx:id="sowh_defaultSettingsButton" layoutX="85.0" layoutY="409.0" mnemonicParsing="false" onAction="#handleDefaultSOWHSettingsButtonAction" text="Restore Defaults" />
+                              </children>
+                            </AnchorPane>
+                          </content>
+                        </Tab>
+                        <Tab text="IQTree">
+                          <content>
+                            <AnchorPane id="Content" minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                             <children>
+                                                <TabPane layoutX="14.0" layoutY="14.0" prefHeight="200.0" prefWidth="283.0" tabClosingPolicy="UNAVAILABLE" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+                                                  <tabs>
+                                                    <Tab fx:id="nucOptionsTab" text="Nucleotide models">
+                                                      <content>
+                                                        <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                                               <children>
+                                                                  <ComboBox fx:id="nucSubModelComboBox" layoutX="13.0" layoutY="35.0" prefHeight="31.0" prefWidth="168.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="35.0" />
+                                                                  <Label layoutX="14.0" layoutY="14.0" prefHeight="21.0" prefWidth="148.0" text="Substitution Model" AnchorPane.leftAnchor="14.0" AnchorPane.topAnchor="14.0" />
+                                                                  <Label layoutX="14.0" layoutY="66.0" prefHeight="21.0" prefWidth="146.0" text="Frequency Model" />
+                                                                  <ComboBox fx:id="baseFreqComboBox" layoutX="14.0" layoutY="87.0" prefHeight="31.0" prefWidth="168.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="87.0" />
+                                                                  <Label layoutX="14.0" layoutY="118.0" prefHeight="21.0" prefWidth="177.0" text="Rate Heterogenity Model" />
+                                                                  <ComboBox fx:id="rateModelComboBox" layoutX="13.0" layoutY="139.0" prefHeight="31.0" prefWidth="171.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="139.0" />
+                                                                  <Button fx:id="acceptNucSettingsButton" layoutX="14.0" layoutY="200.0" mnemonicParsing="false" onAction="#handleAcceptNucSettingsButtonAction" prefHeight="31.0" prefWidth="165.0" text="Accept" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="200.0" />
+                                                                  <Button fx:id="defaultNucSettingsButton" layoutX="14.0" layoutY="243.0" mnemonicParsing="false" onAction="#handleDefaultNucSettingsButtonAction" prefHeight="31.0" prefWidth="166.0" text="Restore Defaults" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="243.0" />
+                                                               </children>
+                                                            </AnchorPane>
+                                                      </content>
+                                                    </Tab>
+                                                    <Tab fx:id="aaOptionsTab" text="Amino acid models">
+                                                      <content>
+                                                        <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                                               <children>
+                                                                  <ComboBox fx:id="aaSubModelComboBox" layoutX="14.0" layoutY="50.0" prefWidth="150.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="35.0" />
+                                                                  <ComboBox fx:id="aaFreqComboBox" layoutX="14.0" layoutY="91.0" prefWidth="150.0" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="87.0" />
+                                                                  <Label layoutX="14.0" layoutY="14.0" prefHeight="21.0" prefWidth="166.0" text="Substitution Model" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="14.0" />
+                                                                  <Label layoutX="14.0" layoutY="66.0" prefHeight="21.0" prefWidth="167.0" text="Frequency Model" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="66.0" />
+                                                                  <Button fx:id="acceptAASettingsButton" layoutX="14.0" layoutY="155.0" mnemonicParsing="false" onAction="#handleAcceptAASettingsButtonAction" text="Accept" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="200.0" />
+                                                                  <Button fx:id="defaultAASettingsButton" layoutX="14.0" layoutY="248.0" mnemonicParsing="false" onAction="#handleDefaultAASettingsButtonAction" text="Restore defaults" AnchorPane.leftAnchor="14.0" AnchorPane.rightAnchor="119.0" AnchorPane.topAnchor="243.0" />
+                                                               </children>
+                                                            </AnchorPane>
+                                                      </content>
+                                                    </Tab>
+                                                  </tabs>
+                                                </TabPane>
+                                             </children></AnchorPane>
+                          </content>
+                        </Tab>
+                      </tabs>
+                    </TabPane>
+                  </content>
+                </Tab>
+                        <Tab text="Results">
+                           <content>
+                              <TabPane prefHeight="480.0" prefWidth="304.0" tabClosingPolicy="UNAVAILABLE">
+                                <tabs>
+                                    <Tab fx:id="summaryPane" text="Summary">
+                                      <content>
+                                        <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                             <children>
+                                                <Label layoutX="14.0" layoutY="75.0" text="Name of Test:" />
+                                                <ComboBox fx:id="testSelectComboBox" layoutX="14.0" layoutY="104.0" prefWidth="150.0" />
+                                                <Button fx:id="checkForTestsButton" layoutX="14.0" layoutY="31.0" mnemonicParsing="false" onAction="#handleCheckForTestsButton" text="Check for new Results" />
+                                                <Button fx:id="showTestResultsButton" layoutX="14.0" layoutY="148.0" mnemonicParsing="false" onAction="#handleShowTestResultsButtonAction" text="Show Results" />
+                                                <Button fx:id="performSOWHDeleteTestResultsButton" layoutX="14.0" layoutY="200.0" mnemonicParsing="false" onAction="#handlePerformSOWHDeleteTestResults" text="Delete SOWH Results" />
+                                             </children>
+                                          </AnchorPane>
+                                      </content>
+                                    </Tab>
+                                  <Tab text="SOWH">
+                                       <content>
+                                          <ScrollPane prefHeight="200.0" prefWidth="200.0">
+                                            <content>
+                                              <AnchorPane maxWidth="1.7976931348623157E308" minHeight="0.0" minWidth="0.0">
+                                                   <children>
+                                                      <Label layoutX="14.0" layoutY="32.0" text="Alignment-Path:" />
+                                                      <Label layoutX="14.0" layoutY="47.0" text="Constraint-Path:" />
+                                                      <Label layoutX="14.0" layoutY="62.0" text="RaxML-Model:" />
+                                                      <Label fx:id="alignmentPathLable" layoutX="133.0" layoutY="32.0" text="-" />
+                                                      <Label fx:id="constraintPathLable" layoutX="133.0" layoutY="47.0" text="-" />
+                                                      <Label fx:id="raxmlModelLable" layoutX="133.0" layoutY="62.0" text="-" />
+                                                      <Label layoutX="14.0" layoutY="77.0" text="Directory:" />
+                                                      <Label fx:id="directoryPathLable" layoutX="133.0" layoutY="77.0" text="-" />
+                                                      <Label layoutX="14.0" layoutY="9.0" text="Test-Options:" underline="true" />
+                                                      <Label layoutX="11.0" layoutY="100.0" text="Null-Distribution" underline="true" />
+                                                      <Label layoutX="11.0" layoutY="125.0" text="mean:" />
+                                                      <Label layoutX="11.0" layoutY="140.0" text="lowest value:" />
+                                                      <Label layoutX="11.0" layoutY="155.0" text="25% quartile:" />
+                                                      <Label layoutX="11.0" layoutY="171.0" text="median:" />
+                                                      <Label layoutX="11.0" layoutY="186.0" text="75% quartile:" />
+                                                      <Label layoutX="11.0" layoutY="201.0" text="highest value:" />
+                                                      <Label layoutX="11.0" layoutY="216.0" text="sample size:" />
+                                                      <Label fx:id="nd_meanLabel" layoutX="133.0" layoutY="126.0" text="-" />
+                                                      <Label fx:id="nd_lowestValueLabel" layoutX="133.0" layoutY="141.0" text="-" />
+                                                      <Label fx:id="nd_25quartileLabel" layoutX="133.0" layoutY="156.0" text="-" />
+                                                      <Label fx:id="nd_medianLabel" layoutX="133.0" layoutY="172.0" text="-" />
+                                                      <Label fx:id="nd_75quartileLabel" layoutX="133.0" layoutY="187.0" text="-" />
+                                                      <Label fx:id="nd_highestValueLabel" layoutX="133.0" layoutY="202.0" text="-" />
+                                                      <Label fx:id="nd_sampleSizeLabel" layoutX="133.0" layoutY="217.0" text="-" />
+                                                      <Label layoutX="11.0" layoutY="246.0" text="Test-Statistic" underline="true" />
+                                                      <Label layoutX="11.0" layoutY="276.0" text="empirical lnL, unc.:" />
+                                                      <Label layoutX="11.0" layoutY="291.0" text="empirical lnL, cons.:" />
+                                                      <Label layoutX="11.0" layoutY="306.0" text="differnece in lnL:" />
+                                                      <Label layoutX="11.0" layoutY="321.0" text="rank of test statistic:" />
+                                                      <Label layoutX="11.0" layoutY="356.0" text="SOWH-Results" underline="true" />
+                                                      <Label layoutX="14.0" layoutY="380.0" text="upper 95% conf. int. of p-value:" />
+                                                      <Label layoutX="14.0" layoutY="395.0" text="lower 95% conf. int. of p-value:" />
+                                                      <Label layoutX="14.0" layoutY="410.0" text="p-value of the null hypothesis:" />
+                                                      <Label fx:id="ts_empiricalLNLunconsLabel" layoutX="174.0" layoutY="276.0" text="-" />
+                                                      <Label fx:id="ts_empiricalLNLconsLabel" layoutX="174.0" layoutY="291.0" text="-" />
+                                                      <Label fx:id="ts_differenceInLNLLabel" layoutX="174.0" layoutY="306.0" text="-" />
+                                                      <Label fx:id="ts_rankOfTestStatisticLabel" layoutX="174.0" layoutY="321.0" text="-" />
+                                                      <Label fx:id="sowh_upper95confLabel" layoutX="227.0" layoutY="380.0" text="-" />
+                                                      <Label fx:id="sowh_lower95confLabel" layoutX="227.0" layoutY="395.0" text="-" />
+                                                      <Label fx:id="sowh_pValueLabel" layoutX="227.0" layoutY="410.0" text="-" />
+                                                   </children></AnchorPane>
+                                            </content>
+                                          </ScrollPane>
+                                       </content>
+                                  </Tab>
+                                  <Tab text="IQ-Tree">
+                                    <content>
+                                      <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="180.0" prefWidth="200.0">
+                                             <children>
+                                                <ScrollPane layoutX="2.0" layoutY="1.0" prefHeight="434.0" prefWidth="296.0" AnchorPane.bottomAnchor="1.0" AnchorPane.leftAnchor="1.0" AnchorPane.rightAnchor="1.0" AnchorPane.topAnchor="1.0">
+                                                   <content>
+                                                      <BorderPane fx:id="iqTreeResultsPane" prefHeight="434.0" prefWidth="299.0">
+                                                         <top>
+                                                            <Label fx:id="iqTreeResultsLabel" prefHeight="21.0" prefWidth="292.0" text="Results are at: " BorderPane.alignment="CENTER" />
+                                                         </top></BorderPane>
+                                                   </content>
+                                                </ScrollPane>
+                                             </children></AnchorPane>
+                                    </content>
+                                  </Tab>
+                                </tabs>
+                              </TabPane>
+                           </content>
+                        </Tab>
+              </tabs>
+            </TabPane>
+          </right>
+        </BorderPane>
+      </children>
+    </AnchorPane>
+    <MenuBar prefHeight="32.0" prefWidth="776.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+      <menus>
+        <Menu mnemonicParsing="false" text="File">
+          <items>
+            <MenuItem id="openNewickButton" fx:id="openNewickButton" mnemonicParsing="false" onAction="#handleOpenNewickButtonAction" text="Import Newick" />
+            <MenuItem id="saveNewickButton" fx:id="saveNewickButton" mnemonicParsing="false" onAction="#handleSaveNewickButtonAction" text="Save Newick" />
+            <MenuItem fx:id="openAlignmentButton" mnemonicParsing="false" onAction="#handleOpenAlignmentButtonAction" text="Import Tree from Alignment" />
+            <MenuItem fx:id="specifyAlignmentMenuItem" mnemonicParsing="false" onAction="#handleSpecifyAlignmentMenuItem" text="Specify Alignment for tree" />
+          </items>
+        </Menu>
+        <Menu mnemonicParsing="false" text="Snapshots">
+          <items>
+            <MenuItem id="takeSnapshotButton" fx:id="takeSnapshotButton" mnemonicParsing="false" onAction="#handleTakeSnapshotButtonEvent" text="Take Snapshot" />
+            <MenuItem id="viewSnapshotsButton" fx:id="viewSnapshotsButton" mnemonicParsing="false" onAction="#handleViewSnapshotsButtonEvent" text="View Snapshots" />
+          </items>
+        </Menu>
+        <Menu mnemonicParsing="false" text="Topology Testing">
+          <items>
+            <MenuItem fx:id="testSnapshotsMenuItem" mnemonicParsing="false" onAction="#handleTestSnapshotsMenuItemAction" text="Test snapshots" />
+            <MenuItem fx:id="testCurrentTopologyMenuItem" mnemonicParsing="false" onAction="#handleTestCurrentTopologyMenuItem" text="Test current topology" />
+          </items>
+        </Menu>
+        <Menu id="options" fx:id="optionsMenu" mnemonicParsing="false" text="Options">
+          <items>
+            <MenuItem fx:id="topologyTestSettingsMenuItem" mnemonicParsing="false" onAction="#handleTopologyTestSettingsMenuItemAction" text="Topology Test Settings" />
+            <CheckMenuItem fx:id="adaptBranchLengthsCheckMenuItem" mnemonicParsing="false" onAction="#handleAdaptBranchLengthsCheck" text="Show Branch Lengths" />
+          </items>
+        </Menu>
+      </menus>
+    </MenuBar>
+  </children>
+</AnchorPane>

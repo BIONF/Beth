@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.*?>
+<?import java.util.*?>
+<?import javafx.scene.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<AnchorPane id="AnchorPane" prefHeight="539.0" prefWidth="726.0" xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1" fx:controller="summer.SowhResultWindowFXMLController">
+   <children>
+      <Button fx:id="closeWindowButton" layoutX="665.0" layoutY="502.0" mnemonicParsing="false" onAction="#handleCloseWindowButtonAction" text="Close" />
+      <Label layoutX="14.0" layoutY="14.0" text="SOWH-Results of Test: " />
+      <ComboBox fx:id="testSelectComboBox" layoutX="207.0" layoutY="9.0" prefWidth="150.0" />
+      <Button fx:id="showTestResultsButton" layoutX="407.0" layoutY="9.0" mnemonicParsing="false" onAction="#handleShowTestResultsButtonAction" text="Show Test-Results" />
+      <Label layoutX="14.0" layoutY="69.0" text="Alignment-Path:" />
+      <Label layoutX="14.0" layoutY="84.0" text="Constraint-Path:" />
+      <Label layoutX="14.0" layoutY="99.0" text="RaxML-Model:" />
+      <Label fx:id="alignmentPathLable" layoutX="165.0" layoutY="69.0" text="-" />
+      <Label fx:id="constraintPathLable" layoutX="165.0" layoutY="84.0" text="-" />
+      <Label fx:id="raxmlModelLable" layoutX="165.0" layoutY="99.0" text="-" />
+      <Label layoutX="14.0" layoutY="114.0" text="Directory:" />
+      <Label fx:id="directoryPathLable" layoutX="165.0" layoutY="114.0" text="-" />
+      <Label layoutX="14.0" layoutY="46.0" text="Test-Options:" underline="true" />
+      <Button fx:id="checkForTestsButton" layoutX="560.0" layoutY="9.0" mnemonicParsing="false" onAction="#handleCheckForTestsButton" text="Check for Tests" />
+      <Label layoutX="14.0" layoutY="150.0" text="Null-Distribution" underline="true" />
+      <Label layoutX="14.0" layoutY="175.0" text="mean:" />
+      <Label layoutX="14.0" layoutY="190.0" text="lowest value:" />
+      <Label layoutX="14.0" layoutY="205.0" text="25% quartile:" />
+      <Label layoutX="14.0" layoutY="221.0" text="median:" />
+      <Label layoutX="14.0" layoutY="236.0" text="75% quartile:" />
+      <Label layoutX="14.0" layoutY="251.0" text="highest value:" />
+      <Label layoutX="14.0" layoutY="266.0" text="sample size:" />
+      <Label fx:id="nd_meanLabel" layoutX="264.0" layoutY="175.0" text="-" />
+      <Label fx:id="nd_lowestValueLabel" layoutX="264.0" layoutY="190.0" text="-" />
+      <Label fx:id="nd_25quartileLabel" layoutX="264.0" layoutY="205.0" text="-" />
+      <Label fx:id="nd_medianLabel" layoutX="264.0" layoutY="221.0" text="-" />
+      <Label fx:id="nd_75quartileLabel" layoutX="264.0" layoutY="236.0" text="-" />
+      <Label fx:id="nd_highestValueLabel" layoutX="264.0" layoutY="251.0" text="-" />
+      <Label fx:id="nd_sampleSizeLabel" layoutX="264.0" layoutY="266.0" text="-" />
+      <Label layoutX="14.0" layoutY="304.0" text="Test-Statistic" underline="true" />
+      <Label layoutX="14.0" layoutY="334.0" text="empirical lnL, unc.:" />
+      <Label layoutX="14.0" layoutY="349.0" text="empirical lnL, cons.:" />
+      <Label layoutX="14.0" layoutY="364.0" text="differnece in lnL:" />
+      <Label layoutX="14.0" layoutY="379.0" text="rank of test statistic:" />
+      <Label layoutX="14.0" layoutY="420.0" text="SOWH-Results" underline="true" />
+      <Label layoutX="14.0" layoutY="453.0" text="upper 95% conf. int. of p-value:" />
+      <Label layoutX="14.0" layoutY="468.0" text="lower 95% conf. int. of p-value:" />
+      <Label layoutX="14.0" layoutY="483.0" text="p-value of the null hypothesis:" />
+      <Label fx:id="ts_empiricalLNLunconsLabel" layoutX="264.0" layoutY="334.0" text="-" />
+      <Label fx:id="ts_empiricalLNLconsLabel" layoutX="264.0" layoutY="349.0" text="-" />
+      <Label fx:id="ts_differenceInLNLLabel" layoutX="264.0" layoutY="364.0" text="-" />
+      <Label fx:id="ts_rankOfTestStatisticLabel" layoutX="264.0" layoutY="379.0" text="-" />
+      <Label fx:id="sowh_upper95confLabel" layoutX="264.0" layoutY="453.0" text="-" />
+      <Label fx:id="sowh_lower95confLabel" layoutX="264.0" layoutY="468.0" text="-" />
+      <Label fx:id="sowh_pValueLabel" layoutX="264.0" layoutY="483.0" text="-" />
+   </children>
+</AnchorPane>

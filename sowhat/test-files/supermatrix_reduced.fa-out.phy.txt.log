@@ -1,0 +1,160 @@
+IQ-TREE multicore version 1.6.1 for Linux 64-bit built Dec 26 2017
+Developed by Bui Quang Minh, Nguyen Lam Tung, Olga Chernomor,
+Heiko Schmidt, Dominik Schrempf, Michael Woodhams.
+
+Host:    stuart (AVX, 7 GB RAM)
+Command: /home/dennis/NetBeansProjects/Beth/dist/.beth/iqTree/iqtreeLINUX/iqtree -s /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt -nt AUTO -m GTR+I+FO
+Seed:    460275 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Sun Sep  2 12:58:04 2018
+Kernel:  AVX - auto-detect threads (4 CPU cores detected)
+
+Reading alignment file /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt ... Phylip format detected
+Alignment most likely contains DNA/RNA sequences
+WARNING: 65 sites contain only gaps or ambiguous characters.
+Alignment has 56 sequences with 25022 columns, 10764 distinct patterns
+6091 parsimony-informative, 3588 singleton sites, 15343 constant sites
+                 Gap/Ambiguity  Composition  p-value
+   1  alpaca            52.38%    failed      0.96%
+   2  armadillo         24.65%    passed     46.01%
+   3  cat               17.58%    passed     15.29%
+   4  cave_fish         64.26%    passed      5.72%
+   5  chicken           56.97%    failed      0.09%
+   6  chimp             20.12%    passed     99.47%
+   7  chinese_hamster   12.30%    passed     30.19%
+   8  cod               66.19%    passed     36.46%
+   9  coelacanth        60.31%    failed      0.00%
+  10  common_shrew      56.83%    passed     27.93%
+  11  cow               18.10%    passed      8.66%
+  12  dog               16.74%    passed     23.70%
+  13  dolphin           22.83%    failed      4.11%
+  14  elephant          18.87%    passed     21.37%
+  15  finch             63.38%    failed      0.00%
+  16  frog              60.45%    failed      0.00%
+  17  fugu              65.90%    passed     14.49%
+  18  gar               61.52%    failed      4.64%
+  19  gibbon            20.39%    passed     97.86%
+  20  goat              17.82%    failed      1.28%
+  21  gorilla           20.05%    passed     57.58%
+  22  ground_squirrel   15.09%    passed      5.60%
+  23  guinea_pig        17.62%    passed     26.82%
+  24  hamster            9.08%    failed      0.87%
+  25  hedgehog          47.73%    passed     85.32%
+  26  horse             19.73%    passed     57.56%
+  27  human             15.24%    passed     74.36%
+  28  hyrax             36.44%    passed     17.33%
+  29  kangaroo_rat      19.85%    passed     12.80%
+  30  lemur             14.87%    failed      3.63%
+  31  lizard            57.91%    failed      0.06%
+  32  macaque           15.59%    passed     62.72%
+  33  marmoset          20.49%    passed     91.34%
+  34  medaka            65.96%    passed     30.28%
+  35  megabat           25.24%    passed     47.21%
+  36  microbat          29.22%    passed     99.42%
+  37  molly             68.07%    failed      3.14%
+  38  mouse              3.42%    failed      1.05%
+  39  opossum           51.12%    failed      4.44%
+  40  orangutan         17.12%    passed     97.94%
+  41  pig               14.60%    failed      2.10%
+  42  pika              55.71%    passed     18.25%
+  43  platyfish         65.52%    failed      3.76%
+  44  platypus          58.53%    failed      2.94%
+  45  pufferfish        67.94%    passed     98.16%
+  46  rabbit            27.59%    passed     96.97%
+  47  rat                8.57%    failed      0.01%
+  48  shark             65.47%    failed      0.00%
+  49  sloth             58.22%    failed      0.01%
+  50  stickleback       67.14%    failed      0.74%
+  51  tarsier           23.13%    passed     99.44%
+  52  tenrec            47.47%    passed     58.62%
+  53  tilapia           64.40%    failed      0.41%
+  54  tree_shrew        45.24%    passed     49.28%
+  55  wallaby           58.35%    passed     10.07%
+  56  zebrafish         64.69%    failed      0.07%
+WARNING: 24 sequences contain more than 50% gaps/ambiguity
+****  TOTAL             38.57%  23 sequences failed composition chi2 test (p-value<5%; df=3)
+
+Create initial parsimony tree by phylogenetic likelihood library (PLL)... 0.036 seconds
+
+NOTE: 19 MB RAM (0 GB) is required!
+Measuring multi-threading efficiency up to 4 CPU cores
+Increase to 10 rounds for branch lengths
+10 trees examined
+Threads: 1 / Time: 4.259 sec / Speedup: 1.000 / Efficiency: 100% / LogL: -229837
+Threads: 2 / Time: 2.681 sec / Speedup: 1.588 / Efficiency: 79% / LogL: -229837
+Threads: 3 / Time: 1.764 sec / Speedup: 2.414 / Efficiency: 80% / LogL: -229837
+Threads: 4 / Time: 1.690 sec / Speedup: 2.520 / Efficiency: 63% / LogL: -229837
+BEST NUMBER OF THREADS: 3
+
+Estimate model parameters (epsilon = 0.100)
+1. Initial log-likelihood: -188264.359
+2. Current log-likelihood: -177136.386
+3. Current log-likelihood: -176808.593
+4. Current log-likelihood: -176749.705
+5. Current log-likelihood: -176736.282
+6. Current log-likelihood: -176733.013
+7. Current log-likelihood: -176732.151
+8. Current log-likelihood: -176731.917
+Optimal log-likelihood: -176731.839
+Rate parameters:  A-C: 1.27836  A-G: 3.51437  A-T: 1.03732  C-G: 1.00447  C-T: 3.37950  G-T: 1.00000
+Base frequencies:  A: 0.230  C: 0.236  G: 0.257  T: 0.277
+Proportion of invariable sites: 0.512
+Parameters optimization took 8 rounds (4.181 sec)
+Computing ML distances based on estimated model parameters... 0.324 sec
+Computing BIONJ tree...
+0.005 seconds
+Log-likelihood of BIONJ tree: -176789.713
+--------------------------------------------------------------------
+|             INITIALIZING CANDIDATE TREE SET                      |
+--------------------------------------------------------------------
+Generating 98 parsimony trees... 5.010 second
+Computing log-likelihood of 98 initial trees ... 4.833 seconds
+Current best score: -176690.794
+
+Do NNI search on 20 best initial trees
+Estimate model parameters (epsilon = 0.100)
+BETTER TREE FOUND at iteration 1: -176674.852
+Iteration 10 / LogL: -176674.856 / Time: 0h:0m:28s
+Iteration 20 / LogL: -176674.855 / Time: 0h:0m:31s
+Finish initializing candidate tree set (3)
+Current best tree score: -176674.852 / CPU time: 16.972
+Number of iterations: 20
+--------------------------------------------------------------------
+|               OPTIMIZING CANDIDATE TREE SET                      |
+--------------------------------------------------------------------
+Iteration 30 / LogL: -176674.855 / Time: 0h:0m:35s (0h:1m:27s left)
+Iteration 40 / LogL: -176678.910 / Time: 0h:0m:40s (0h:1m:2s left)
+Iteration 50 / LogL: -176675.980 / Time: 0h:0m:43s (0h:0m:45s left)
+Iteration 60 / LogL: -176710.932 / Time: 0h:0m:48s (0h:0m:33s left)
+Iteration 70 / LogL: -176674.855 / Time: 0h:0m:52s (0h:0m:23s left)
+Iteration 80 / LogL: -176712.821 / Time: 0h:0m:56s (0h:0m:15s left)
+Iteration 90 / LogL: -176714.347 / Time: 0h:1m:1s (0h:0m:7s left)
+Iteration 100 / LogL: -176674.886 / Time: 0h:1m:5s (0h:0m:0s left)
+TREE SEARCH COMPLETED AFTER 102 ITERATIONS / Time: 0h:1m:6s
+
+--------------------------------------------------------------------
+|                    FINALIZING TREE SEARCH                        |
+--------------------------------------------------------------------
+Performs final model parameters optimization
+Estimate model parameters (epsilon = 0.010)
+1. Initial log-likelihood: -176674.852
+Optimal log-likelihood: -176674.850
+Rate parameters:  A-C: 1.28508  A-G: 3.53419  A-T: 1.03956  C-G: 1.01224  C-T: 3.39010  G-T: 1.00000
+Base frequencies:  A: 0.230  C: 0.235  G: 0.257  T: 0.278
+Proportion of invariable sites: 0.512
+Parameters optimization took 1 rounds (0.165 sec)
+BEST SCORE FOUND : -176674.850
+Total tree length: 2.714
+
+Total number of iterations: 102
+CPU time used for tree search: 152.924 sec (0h:2m:32s)
+Wall-clock time used for tree search: 51.246 sec (0h:0m:51s)
+Total CPU time used: 188.836 sec (0h:3m:8s)
+Total wall-clock time used: 66.363 sec (0h:1m:6s)
+
+Analysis results written to: 
+  IQ-TREE report:                /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt.iqtree
+  Maximum-likelihood tree:       /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt.treefile
+  Likelihood distances:          /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt.mldist
+  Screen log file:               /home/dennis/NetBeansProjects/Beth/sowhat/test-files/supermatrix_reduced.fa-out.phy.txt.log
+
+Date and Time: Sun Sep  2 12:59:10 2018
